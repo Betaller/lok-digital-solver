@@ -1,0 +1,12 @@
+{
+  "name": "lok-digital-solver",
+  "version": "1.0.0",
+  "description": "LOK Digital puzzle solver - static web app",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test tests/",
+    "extract": "node tools/extract-levels.js"
+  },
+  "license": "MIT"
+}

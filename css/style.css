@@ -1,0 +1,93 @@
+:root {
+  --bg: #1a1c22;
+  --panel: #242833;
+  --panel2: #2c3140;
+  --border: #3a4050;
+  --text: #e6e9f0;
+  --dim: #9aa3b2;
+  --accent: #6fa8dc;
+  --accent2: #8ec9ff;
+  --black: #0f1116;
+  --tile: #3f4a5e;
+  --target: #5a5f6e;
+  --preblack: #3d4454;
+  --good: #5ad06e;
+  --bad: #e06a6a;
+  --warn: #e0c86a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+#app { max-width: 1000px; margin: 0 auto; padding: 12px; }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 4px 0; }
+#tabs { display: flex; gap: 6px; }
+.tab { background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+.tab.active { background: var(--accent); color: #111; font-weight: 600; }
+main { margin-top: 12px; }
+.panel { display: none; }
+.panel.active { display: block; }
+button { background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+  padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: #111; font-weight: 600; }
+button:disabled { opacity: .45; cursor: default; }
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+textarea { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px; font-family: "Consolas", "Courier New", monospace; resize: vertical; }
+.error { color: var(--bad); margin-top: 6px; }
+input[type=number] { width: 64px; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px; }
+input[type=range] { vertical-align: middle; }
+
+#world-select { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+#world-select .wbtn { padding: 6px 12px; border-radius: 20px; }
+#world-select .wbtn.active { background: var(--accent); color: #111; }
+#level-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 8px; }
+.level-btn { min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 6px; font-weight: 600; }
+.level-btn small { font-size: 10px; color: var(--dim); font-weight: 400; }
+.level-btn.solved { background: var(--good); color: #111; }
+.level-btn.olko { box-shadow: 0 0 0 2px var(--warn) inset; }
+#level-preview { margin-top: 12px; }
+
+/* board rendering */
+.board { display: inline-block; background: var(--black); border-radius: 8px; padding: 10px; }
+.board .row { display: flex; }
+.cell { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  font-family: "Consolas","Courier New",monospace; font-weight: 700; font-size: 20px;
+  border-radius: 4px; margin: 2px; user-select: none; position: relative;
+  background: var(--tile); color: var(--text); transition: background .2s, color .2s, transform .15s;
+}
+.cell.empty { background: transparent; }
+.cell.target { background: var(--target); }
+.cell.preblack { background: var(--preblack); }
+.cell.blacked { background: #000; color: #fff; }
+.cell.xcell { color: var(--accent2); }
+.cell.q { color: var(--warn); }
+.cell.w { color: #8ee6e6; }
+.cell.hp { position: absolute; top: 0; right: 3px; font-size: 11px; color: var(--warn); font-weight: 700; }
+.cell.highlight { outline: 3px solid var(--accent2); outline-offset: -2px; }
+.cell.flash { transform: scale(1.25); }
+.cell.dim { opacity: .35; }
+
+#solve-board { margin: 12px 0; }
+#result-drawer { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; margin-top: 14px; }
+#result-status { font-weight: 700; font-size: 15px; }
+#step-list { max-height: 240px; overflow-y: auto; padding-left: 20px; margin: 8px 0 0; }
+#step-list li { margin: 3px 0; font-family: "Consolas","Courier New",monospace; font-size: 13px; }
+#step-list li.cur { color: var(--accent2); font-weight: 700; }
+#result-progress { font-size: 13px; color: var(--dim); }
+
+/* draw tool */
+#draw-stage { overflow: auto; background: var(--black); border-radius: 8px; padding: 8px; }
+#draw-stage .cell { cursor: pointer; }
+#draw-toolbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+#draw-toolbar .tool { min-width: 34px; }
+#draw-toolbar .tool.active { background: var(--accent); color: #111; }
+
+@media (max-width: 600px) {
+  .cell { width: 34px; height: 34px; font-size: 16px; }
+}

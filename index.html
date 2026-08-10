@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>LOK Digital 求解器</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>LOK Digital 求解器</h1>
+    <nav id="tabs">
+      <button data-tab="levels" class="tab active">关卡库</button>
+      <button data-tab="import" class="tab">导入谜题</button>
+      <button data-tab="draw" class="tab">画题工具</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Levels tab -->
+    <section id="panel-levels" class="panel active">
+      <div id="world-select"></div>
+      <div id="level-grid"></div>
+      <div id="level-preview"></div>
+    </section>
+
+    <!-- Import tab -->
+    <section id="panel-import" class="panel">
+      <p>粘贴 ASCII 谜题（或从官方关卡库复制）。格式：<code>列数</code> <code>行数</code> + 网格，也可只贴网格自动推断。</p>
+      <div class="toolbar">
+        <button id="btn-import-file">上传 .txt 文件</button>
+        <input type="file" id="file-input" accept=".txt,.csv,text/plain" hidden>
+        <button id="btn-load-sample">加载示例</button>
+      </div>
+      <textarea id="import-text" rows="10" spellcheck="false" placeholder="例如：&#10;3&#10;2&#10;LOK&#10;-#-"></textarea>
+      <div id="import-err" class="error" hidden></div>
+      <div class="toolbar">
+        <button id="btn-import-solve" class="primary">求解</button>
+        <button id="btn-import-probe" >探测 OLKO</button>
+      </div>
+    </section>
+
+    <!-- Draw tab -->
+    <section id="panel-draw" class="panel">
+      <div id="draw-config">
+        <label>列 <input id="draw-cols" type="number" value="6" min="1" max="64"></label>
+        <label>行 <input id="draw-rows" type="number" value="6" min="1" max="64"></label>
+        <button id="btn-draw-resize">重建网格</button>
+      </div>
+      <div id="draw-toolbar"></div>
+      <div id="draw-stage"></div>
+      <div class="toolbar">
+        <button id="btn-draw-undo">撤销</button>
+        <button id="btn-draw-redo">重做</button>
+        <button id="btn-draw-clear">清空</button>
+        <button id="btn-draw-export">导出 ASCII</button>
+        <button id="btn-draw-solve" class="primary">求解</button>
+      </div>
+      <textarea id="draw-ascii" rows="4" readonly placeholder="导出/导入 ASCII 将显示在这里"></textarea>
+    </section>
+  </main>
+
+  <!-- Result drawer -->
+  <div id="result-drawer" hidden>
+    <div class="result-head">
+      <span id="result-status"></span>
+      <div class="toolbar">
+        <button id="btn-res-close">关闭</button>
+      </div>
+    </div>
+    <div id="result-progress"></div>
+    <div id="solve-board"></div>
+    <div class="toolbar" id="player-controls">
+      <button id="btn-prev">◀ 上一步</button>
+      <button id="btn-play">播放</button>
+      <button id="btn-pause">暂停</button>
+      <button id="btn-next">下一步 ▶</button>
+      <button id="btn-reset">重置</button>
+      <label>速度 <input id="speed" type="range" min="0.25" max="3" step="0.25" value="1"></label>
+    </div>
+    <ol id="step-list"></ol>
+  </div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
