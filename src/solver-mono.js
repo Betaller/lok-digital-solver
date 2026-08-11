@@ -3,7 +3,7 @@
 // Phase B: run the core word solver on the assembled letter grid.
 import { parseLevel, exportLevel } from './parse.js';
 import { makeBoard, cellAt, isSolved, boardKey, WORD_LIBRARY } from './engine.js';
-import { solve } from './solver.js';
+import { solve, findPlacements } from './solver.js';
 
 // Build the slot layout from parsed Level: slots are cells where grid char is '#'
 // (fake slots are 'X' - they are decorative, cannot be landed on).
