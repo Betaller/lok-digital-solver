@@ -184,46 +184,52 @@ export function applyWord(cells, word, placement, cols, rows, opts = {}) {
   }
 
   if (cfg.clouds) {
-    // W: pattern-copy. The spelled W tiles form a pattern; clicking a target tile
-    // copies that pattern, blackening both the W tiles and matching destination tiles.
-    // We approximate: try every possible anchor obj; blacken W tiles + all non-black
-    // tiles at (obj + (Wj - Wi)) for each i (per DoW loop).
+    // W (world 14): spelling W selects ALL unblackened W tiles; they form a shape.
+    // Clicking a target tile copies that shape onto the target: every destination
+    // cell must exist and be unblackened; then the shape's cells AND the W tiles
+    // are blackened. (DoW: for each W i as anchor, test obj + (Wj - Wi).)
     const ws = cells.filter(c => c.letter === 'W' && !c.blacked);
-    const nonW = cells.filter(c => c.type !== 'empty' && c.letter !== 'W' && !c.blacked);
+    if (ws.length === 0) return results;
     const emitted = new Set();
-    for (const anchor of nonW) {
-      const targets = [];
-      let ok = true;
-      for (const w of ws) {
-        const dx = w.x - ws[0].x, dy = w.y - ws[0].y;
-        const tx = anchor.x + dx, ty = anchor.y + dy;
-        const t = cellAt(cells, tx, ty);
-        if (!t || t.type === 'empty' || (t.letter === 'W' && !t.blacked)) {
-          ok = false; break;
+    // anchor candidates: every non-empty, non-black cell (the clicked target tile)
+    const anchors = cells.filter(c => c.type !== 'empty' && !c.blacked);
+    // treat each W tile as potential anchor reference (like DoW loop over i)
+    for (const ref of ws) {
+      const rx = ref.x, ry = ref.y;
+      for (const anchor of anchors) {
+        const targets = [];
+        let ok = true;
+        for (const w of ws) {
+          const dx = w.x - rx, dy = w.y - ry;
+          const tx = anchor.x + dx, ty = anchor.y + dy;
+          const t = cellAt(cells, tx, ty);
+          if (!t || t.type === 'empty' || t.blacked) { ok = false; break; }
+          if (!targets.some(x => x.x === t.x && x.y === t.y)) targets.push(t);
         }
-        if (!t.blacked && !targets.some(x => x.x === t.x && x.y === t.y)) targets.push(t);
-      }
-      if (ok) {
-        // blacken W tiles + targets
+        if (!ok) continue;
         let b = applyBlackout(board, ws);
         b = applyBlackout(b, targets);
         const k = boardKey(b);
         if (!emitted.has(k)) { emitted.add(k); results.push({ board: b, extras: [], extraAction: `W@${anchor.x},${anchor.y}` }); }
       }
     }
-    // also emit just activating W tiles alone (if no copy needed)
-    if (ws.length > 0) {
-      const b = applyBlackout(board, ws);
-      const k = boardKey(b);
-      if (!emitted.has(k)) { emitted.add(k); results.push({ board: b, extras: [], extraAction: 'W' }); }
-    }
   } else if (cfg.globalLetter) {
     // TA: blacken all tiles matching a chosen letter. Choose any letter present
     // (including X - clicking an X tile triggers ExecuteTa("X") blackening all X).
-    const letters = new Set(cells.filter(c => c.type === 'letter' && c.letter && c.letter !== '?').map(c => c.letter));
+    // Clicking a target '#' (letter="") triggers ExecuteTa("") -> blackens all targets.
+    const letters = new Set();
+    for (const c of cells) {
+      if (c.type === 'empty' || c.blacked) continue;
+      if (c.type === 'target') letters.add('');
+      else if (c.type === 'letter' && c.letter && c.letter !== '?') letters.add(c.letter);
+    }
     for (const L of letters) {
-      const hits = cells.filter(c => c.letter === L && !c.blacked);
-      emit([applyBlackout(board, hits)], [], `TA:${L}`);
+      const hits = cells.filter(c => {
+        if (c.blacked) return false;
+        if (L === '') return c.type === 'target';
+        return c.type === 'letter' && c.letter === L;
+      });
+      emit([applyBlackout(board, hits)], [], `TA:${L === '' ? '#' : L}`);
     }
   } else if (cfg.createLetter) {
     // BE: choose a target '#' tile and assign it a letter. (letter choice - try letters needed)
@@ -255,11 +261,21 @@ export function applyWord(cells, word, placement, cols, rows, opts = {}) {
       emit([applyBlackout(board, toBlack)], [], 'lolo');
     }
   } else if (cfg.unblack) {
-    // ABA: blacken word tiles + choose 1 extra tile to unblack (or hp++)
-    for (const ex of candidateSet()) {
+    // ABA: blacken word tiles + choose 1 extra tile to UNBLACK (UnsetSpentAba).
+    // Target may be any non-empty tile: if black -> unblack; if not black -> hp++
+    // (per UnsetSpentAba). Both variants explored.
+    const abaCandidates = cells.filter(c => c.type !== 'empty');
+    const seenAb = new Set();
+    for (const ex of abaCandidates) {
       let b = applyBlackout(board, []);
-      b = b.map(c => (c.x === ex.x && c.y === ex.y) ? unblack(c) : c);
-      emit([b], [ex], 'aba');
+      if (ex.blacked) {
+        b = b.map(c => (c.x === ex.x && c.y === ex.y) ? unblack(c) : c);
+      } else {
+        // hp++ (add an onion layer) - useful when the tile will be peeled again
+        b = b.map(c => (c.x === ex.x && c.y === ex.y) ? { ...c, hp: c.hp + 1 } : c);
+      }
+      const k = boardKey(b);
+      if (!seenAb.has(k)) { seenAb.add(k); emit([b], [ex], 'aba'); }
     }
   } else if (cfg.extra === 1) {
     // LOK: 1 extra tile
@@ -388,13 +404,13 @@ export function solve(level, opts = {}) {
             return { status: 'timeout', progress: best, reason: 'budget' };
           }
           // compute exact effect diff (which cells change) for reliable replay/validation
-          const { blackTiles, unblackTiles, letterChanges } = diffCells(cells, app.board);
+          const { blackTiles, unblackTiles, letterChanges, hpChanges } = diffCells(cells, app.board);
           stack.push({ cells: app.board, steps: steps.concat([{
             word: w,
             tiles: pl.tiles.map(t => ({ x: t.x, y: t.y })),
             extras: app.extras.map(t => ({ x: t.x, y: t.y })),
             extraAction: app.extraAction,
-            blackTiles, unblackTiles, letterChanges,
+            blackTiles, unblackTiles, letterChanges, hpChanges,
             text: describeStep(w, pl, app),
           }]), depth: depth + 1 });
           pushed++;
@@ -411,15 +427,16 @@ function diffCells(before, after) {
   const key = c => `${c.x},${c.y}`;
   const bMap = new Map(before.map(c => [key(c), c]));
   const aMap = new Map(after.map(c => [key(c), c]));
-  const blackTiles = [], unblackTiles = [], letterChanges = [];
+  const blackTiles = [], unblackTiles = [], letterChanges = [], hpChanges = [];
   for (const [k, a] of aMap) {
     const b = bMap.get(k);
     if (!b) continue;
     if (!b.blacked && a.blacked) blackTiles.push({ x: a.x, y: a.y });
     if (b.blacked && !a.blacked) unblackTiles.push({ x: a.x, y: a.y });
     if (b.letter !== a.letter) letterChanges.push({ x: a.x, y: a.y, from: b.letter, to: a.letter });
+    if (b.hp !== a.hp) hpChanges.push({ x: a.x, y: a.y, from: b.hp, to: a.hp });
   }
-  return { blackTiles, unblackTiles, letterChanges };
+  return { blackTiles, unblackTiles, letterChanges, hpChanges };
 }
 
 function describeStep(word, placement, app) {

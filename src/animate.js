@@ -66,33 +66,61 @@ export function animateSteps(boardEl, level, steps) {
     renderBlackState(boardEl, 0);
   }
 
-  // apply blacked state up to step `n` (exclusive) - tiles blacked by prior steps stay blacked
+  // apply board state up to step `n` (exclusive):
+  //   - reset letters to base
+  //   - apply hp changes (onion layer count) from steps 0..n-1
+  //   - blacken/unblacken per recorded diff
   function renderBlackState(n) {
-    // reset all to base first (letters, targets)
+    // reset all cells to base (letter + hp display)
     boardEl.querySelectorAll('.cell').forEach(c => {
       c.classList.remove('blacked', 'flash');
+      const x = +c.dataset.x, y = +c.dataset.y;
+      const ch = level.grid?.[y]?.[x] ?? '-';
+      const baseHp = level.onions?.[y]?.[x] ?? 0;
+      c.textContent = (ch === '-' || ch === '#' || ch === '=') ? '' : ch;
+      // reset hp display
+      let hpEl = c.querySelector('.hp');
+      if (baseHp > 0) {
+        if (!hpEl) { hpEl = document.createElement('span'); hpEl.className = 'hp'; c.appendChild(hpEl); }
+        hpEl.textContent = baseHp;
+        hpEl.style.display = '';
+      } else if (hpEl) {
+        hpEl.remove();
+      }
     });
     // re-mark initial preblack '='
-    const cs = boardEl.querySelectorAll('.cell');
-    cs.forEach(c => {
+    boardEl.querySelectorAll('.cell').forEach(c => {
       const x = +c.dataset.x, y = +c.dataset.y;
       const ch = level.grid?.[y]?.[x] ?? '-';
       if (ch === '=') c.classList.add('blacked');
     });
-    // apply blackouts from steps 0..n-1 (word tiles + extras)
+    // apply steps 0..n-1: hp changes first, then blackouts
     for (let i = 0; i < n; i++) {
       const s = steps[i];
-      for (const t of [...(s.tiles||[]), ...(s.extras||[])]) {
+      for (const hc of (s.hpChanges || [])) {
+        const c = cellEls[`${hc.x},${hc.y}`];
+        if (!c) continue;
+        if (hc.to > 0) {
+          let hpEl = c.querySelector('.hp');
+          if (!hpEl) { hpEl = document.createElement('span'); hpEl.className = 'hp'; c.appendChild(hpEl); }
+          hpEl.textContent = hc.to;
+          hpEl.style.display = '';
+        } else {
+          const hpEl = c.querySelector('.hp');
+          if (hpEl) hpEl.remove();
+        }
+      }
+      for (const t of (s.blackTiles || [])) {
         const c = cellEls[`${t.x},${t.y}`];
         if (c && !c.classList.contains('empty')) c.classList.add('blacked');
       }
-      // unblack for ABA
-      if (s.extraAction && s.extraAction.startsWith('aba')) {
-        // ABA: extras are unblacked (they were the 'cancel' tile) - actually extras were blacked then unblacked
-        for (const t of (s.extras||[])) {
-          const c = cellEls[`${t.x},${t.y}`];
-          if (c) c.classList.remove('blacked');
-        }
+      for (const t of (s.unblackTiles || [])) {
+        const c = cellEls[`${t.x},${t.y}`];
+        if (c) c.classList.remove('blacked');
+      }
+      for (const lc of (s.letterChanges || [])) {
+        const c = cellEls[`${lc.x},${lc.y}`];
+        if (c && lc.to) c.textContent = lc.to;
       }
     }
   }
@@ -100,18 +128,38 @@ export function animateSteps(boardEl, level, steps) {
   function showStep(n) {
     clearState();
     renderBlackState(n);
-    // highlight current step tiles
+    // highlight current step tiles: word tiles, then extra/global effect tiles
     if (n < total) {
       const s = steps[n];
-      const all = [...(s.tiles||[]), ...(s.extras||[])];
-      all.forEach((t, i) => {
-        const c = cellEls[`${t.x},${t.y}`];
-        if (c) {
-          setTimeout(() => c.classList.add('highlight'), i * 150);
-          setTimeout(() => c.classList.add('blacked'), 400 + i * 150);
-          setTimeout(() => c.classList.add('flash'), 400 + i * 150);
+      // tiles to highlight = word tiles (conductors highlighted too) + any newly blackened
+      const hl = new Set();
+      for (const t of (s.tiles || [])) hl.add(`${t.x},${t.y}`);
+      for (const t of (s.blackTiles || [])) hl.add(`${t.x},${t.y}`);
+      for (const t of (s.extras || [])) hl.add(`${t.x},${t.y}`);
+      // order: word tiles first, then the rest
+      const ordered = [];
+      for (const t of (s.tiles || [])) { const k = `${t.x},${t.y}`; if (!ordered.includes(k)) ordered.push(k); }
+      for (const k of hl) if (!ordered.includes(k)) ordered.push(k);
+      ordered.forEach((k, i) => {
+        const c = cellEls[k];
+        if (c && !c.classList.contains('empty')) {
+          setTimeout(() => c.classList.add('highlight'), i * 140);
+          // if this tile has hp in the step's final state, only peel a layer (flash hp), don't blacken
+          const hc = (s.hpChanges || []).find(h => `${h.x},${h.y}` === k);
+          const becomesBlack = (s.blackTiles || []).some(t => `${t.x},${t.y}` === k) && !(hc && hc.to > 0);
+          if (becomesBlack) {
+            setTimeout(() => c.classList.add('blacked'), 380 + i * 140);
+          }
+          setTimeout(() => c.classList.add('flash'), 380 + i * 140);
         }
       });
+      // letter changes (BE) animate as letter pop
+      for (const lc of (s.letterChanges || [])) {
+        const c = cellEls[`${lc.x},${lc.y}`];
+        if (c) {
+          setTimeout(() => { c.textContent = lc.to; c.classList.add('flash'); }, 500);
+        }
+      }
     }
   }
 
