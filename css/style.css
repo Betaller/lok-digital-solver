@@ -63,16 +63,26 @@ input[type=range] { vertical-align: middle; }
 .cell.empty { background: transparent; }
 .cell.target { background: var(--target); }
 .cell.preblack { background: var(--preblack); }
-.cell.blacked { background: #000; color: transparent; }
+.cell.blacked { background: #222; color: rgba(255,255,255,0.4); }
 .cell.peeling { box-shadow: 0 0 0 2px var(--warn) inset; }
 .cell.oniadded { box-shadow: 0 0 0 2px var(--good) inset; }
 .cell.xcell { color: var(--accent2); }
 .cell.q { color: var(--warn); }
 .cell.w { color: #8ee6e6; }
-.cell.hp { position: absolute; top: 0; right: 3px; font-size: 11px; color: var(--warn); font-weight: 700; }
+.cell .hp { position: absolute; top: 0; right: 3px; font-size: 11px; color: var(--warn); font-weight: 700; }
 .cell.highlight { outline: 3px solid var(--accent2); outline-offset: -2px; }
 .cell.flash { transform: scale(1.25); }
 .cell.dim { opacity: .35; }
+
+/* monument pieces preview */
+.pieces-preview { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 8px; }
+.pieces-title { width: 100%; font-size: 13px; color: var(--dim); margin-bottom: 2px; }
+.piece { display: inline-block; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+.piece-shape { font-family: "Consolas","Courier New",monospace; }
+.piece-row { display: flex; }
+.piece-cell { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: var(--text); }
+.piece-cell.empty { color: var(--dim); opacity: .4; }
 
 #solve-board { margin: 12px 0; }
 #result-drawer { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;

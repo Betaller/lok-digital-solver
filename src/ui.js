@@ -5,7 +5,7 @@ import { LEVELS, LEVELS_SOURCE_VERSION } from '../data/levels.js';
 import { parseLevel, exportLevel } from './parse.js';
 import { makeBoard, isSolved, boardKey, cellAt } from './engine.js';
 import { solve, probeOlko } from './solver.js';
-import { solveMonuments } from './solver-mono.js';
+import { solveMonuments, assembleGrid } from './solver-mono.js';
 import { solveArrows } from './solver-arrows.js';
 import { animateSteps, renderBoard } from './animate.js';
 import { createDrawTool } from './draw.js';
@@ -22,6 +22,39 @@ let resultState = null;       // {status, steps, ...}
 let activeWorld = 1;
 
 const $ = sel => document.querySelector(sel);
+
+function renderPieces(pieces) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pieces-preview';
+  const title = document.createElement('div');
+  title.className = 'pieces-title';
+  title.textContent = `碑块 (${pieces.length})：`;
+  wrap.appendChild(title);
+  for (let i = 0; i < pieces.length; i++) {
+    const p = document.createElement('div');
+    p.className = 'piece';
+    const shapeEl = document.createElement('div');
+    shapeEl.className = 'piece-shape';
+    const rows = pieces[i].shape;
+    const maxW = Math.max(...rows.map(r => r.length), 1);
+    for (const row of rows) {
+      const rEl = document.createElement('div');
+      rEl.className = 'piece-row';
+      for (let x = 0; x < maxW; x++) {
+        const ch = x < row.length ? row[x] : '';
+        const cEl = document.createElement('span');
+        cEl.className = 'piece-cell';
+        if (ch === '-') cEl.classList.add('empty');
+        else cEl.textContent = ch;
+        rEl.appendChild(cEl);
+      }
+      shapeEl.appendChild(rEl);
+    }
+    p.appendChild(shapeEl);
+    wrap.appendChild(p);
+  }
+  return wrap;
+}
 
 export function initUI() {
   buildTabs();
@@ -124,6 +157,10 @@ function loadLibraryLevel(world, level) {
   olkoBtn.addEventListener('click', () => runOlko(currentLevel));
   info.appendChild(olkoBtn);
   prev.appendChild(info);
+  // render monument pieces if present
+  if (currentLevel.pieces && currentLevel.pieces.length) {
+    prev.appendChild(renderPieces(currentLevel.pieces));
+  }
 }
 
 // ---------------------------------------------------------------- solving
@@ -161,8 +198,16 @@ function showResult(level, res) {
     prog.textContent = `${res.steps.length} 步`;
     const wrap = $('#solve-board');
     wrap.innerHTML = '';
-    wrap.appendChild(renderBoard(level));
-    const play = animateSteps(wrap.querySelector('.board'), level, res.steps);
+    // For monument puzzles, render the assembled grid with pieces placed
+    let boardLevel = level;
+    if (level.world === 13 && res.monumentPlacement) {
+      boardLevel = assembleGrid(level, res.monumentPlacement);
+      boardLevel.world = 13; boardLevel.level = level.level;
+      boardLevel.hints = level.hints || [];
+      boardLevel.name = level.name;
+    }
+    wrap.appendChild(renderBoard(boardLevel));
+    const play = animateSteps(wrap.querySelector('.board'), boardLevel, res.steps);
     window.__play = play;
     renderSteps(res.steps);
     $('#btn-play').onclick = () => play.play();
