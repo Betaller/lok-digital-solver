@@ -69,13 +69,11 @@ function nextInDir(cells, from, d, cols, rows) {
   return null;
 }
 
-// Enumerate all paths spelling `word`. `cells` is the current board.
+// Enumerate all paths spelling `word`. `grid` is the current board.
 // Visit rules (from game CheckSameTile / CheckDoubleBack):
-//   - may NOT click the same tile twice in a row
-//   - may NOT step back to the second-to-last tile
-//   - MAY revisit earlier tiles (this is how LOLO loops on L-O-L-O)
-// Direction reversal is allowed only for LOLO/OLOL (their loop pattern needs it);
-// for other words reversing the line is rejected.
+//   - may NOT stay on the same tile (next must be different cell)
+//   - may NOT double-back immediately to previous tile (unless X or ?)
+//   - MAY revisit any earlier tile after visiting X/? conductors between
 export function findPlacements(grid, word, cols, rows, opts = {}) {
   const allowReverse = word === 'LOLO' || word === 'OLOL';
   const maxResults = opts.maxResults ?? 10000;
