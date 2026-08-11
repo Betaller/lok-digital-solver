@@ -33,23 +33,17 @@ function doPush(grid, arrow, dir, cols, rows) {
   if (beyond && beyond.type !== TYPE.EMPTY) return null;
 
   let out = cloneBoard(grid);
-  // move chain tiles from end to start
   for (let i = chain.length - 1; i >= 0; i--) {
     const t = chain[i];
     const nx = t.x + dir.x, ny = t.y + dir.y;
     out[nx][ny] = { ...out[t.x][t.y], x: nx, y: ny };
   }
-  // clear original positions that weren't overwritten
   for (const t of chain) {
-    const nx = t.x + dir.x, ny = t.y + dir.y;
-    // if this position's new location wasn't occupied by another tile after the move,
-    // clear it (set to empty)
     const stillNeeded = chain.some(c => c.x + dir.x === t.x && c.y + dir.y === t.y);
     if (!stillNeeded) {
       out[t.x][t.y] = { ...out[t.x][t.y], type: TYPE.EMPTY, letter: '' };
     }
   }
-  // blacken the arrow tile at its new position
   const nax = arrow.x + dir.x, nay = arrow.y + dir.y;
   out[nax][nay] = blackout(out[nax][nay]);
   return { board: out, moved: chain.map(t => ({ x: t.x, y: t.y })), dir: `${dir.x},${dir.y}` };
