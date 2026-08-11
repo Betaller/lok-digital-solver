@@ -257,6 +257,8 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
       }
     }
   } else if (cfg.diagonal) {
+    // LOLO: blacken the diagonal through the clicked anchor tile.
+    // Player may select any non-empty tile as anchor; try all unique diagonals.
     const allCells0 = allCells(grid);
     const anchors = allCells0.filter(c => c.type !== TYPE.EMPTY);
     const seen = new Set();
