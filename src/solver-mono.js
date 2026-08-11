@@ -35,26 +35,33 @@ function pieceCells(shape) {
   return cells;
 }
 
-// Try to place `piece` such that its cells land exactly on `slot`.
-// Returns list of placements: [{ anchor: {x,y}, letters: [{x,y,letter}] }]
+// Try to place `piece` such that its letter cells land exactly on slots.
+// Anchor can be any position; only letter cells must match slots.
 function placementsForPiece(piece, slots, occupied, cols, rows) {
   const cells = pieceCells(piece.shape);
   const out = [];
   const slotSet = new Map();
   slots.forEach(s => slotSet.set(`${s.x},${s.y}`, s));
+  if (cells.length === 0) return out;
+
+  const seen = new Set();
   for (const s of slots) {
-    // anchor piece cell (0,0) at slot s, then check all cells land on slots
-    let ok = true;
-    const placed = [];
-    for (const pc of cells) {
-      const px = s.x + pc.x, py = s.y + pc.y;
-      if (px < 0 || py < 0 || px >= cols || py >= rows) { ok = false; break; }
-      const key = `${px},${py}`;
-      if (!slotSet.has(key)) { ok = false; break; }
-      if (occupied.has(key)) { ok = false; break; }
-      placed.push({ x: px, y: py, letter: pc.letter, hp: pc.hp });
+    for (const anchorCell of cells) {
+      const ox = s.x - anchorCell.x, oy = s.y - anchorCell.y;
+      let ok = true;
+      const placed = [];
+      for (const pc of cells) {
+        const px = ox + pc.x, py = oy + pc.y;
+        if (px < 0 || py < 0 || px >= cols || py >= rows) { ok = false; break; }
+        const key = `${px},${py}`;
+        if (!slotSet.has(key) || occupied.has(key)) { ok = false; break; }
+        placed.push({ x: px, y: py, letter: pc.letter, hp: pc.hp });
+      }
+      if (!ok) continue;
+      const k = placed.map(c => `${c.x},${c.y}`).sort().join('|');
+      if (!seen.has(k)) { seen.add(k); out.push({ cells: placed }); }
     }
-    if (ok) out.push({ anchor: { x: s.x, y: s.y }, cells: placed });
+    if (out.length >= 20) break; // cap per piece
   }
   return out;
 }
@@ -73,19 +80,24 @@ export function placePiecesAll(level, pieces, cap = 200) {
       solutions.push(solution.map(p => ({ ...p, cells: p.cells.map(c => ({ ...c })) })));
       return solutions.length >= cap;
     }
+    // find the piece with the fewest placements (minimum remaining values heuristic)
+    let bestPiece = -1, bestPls = null, bestMin = Infinity;
     for (let i = 0; i < pieces.length; i++) {
       if (used[i]) continue;
-      const placements = placementsForPiece(pieces[i], slots, occupied, level.cols, level.rows);
-      for (const p of placements) {
-        p.cells.forEach(c => occupied.add(`${c.x},${c.y}`));
-        used[i] = true;
-        solution.push({ pieceIndex: i, ...p });
-        if (backtrack(depth + 1)) return true;
-        solution.pop();
-        used[i] = false;
-        p.cells.forEach(c => occupied.delete(`${c.x},${c.y}`));
-      }
+      const pls = placementsForPiece(pieces[i], slots, occupied, level.cols, level.rows);
+      if (pls.length < bestMin) { bestMin = pls.length; bestPiece = i; bestPls = pls; }
     }
+    if (!bestPls || bestMin === 0) return false;
+    used[bestPiece] = true;
+    for (const p of bestPls) {
+      p.cells.forEach(c => occupied.add(`${c.x},${c.y}`));
+      solution.push({ pieceIndex: bestPiece, ...p });
+      if (backtrack(depth + 1)) return true;
+      solution.pop();
+      p.cells.forEach(c => occupied.delete(`${c.x},${c.y}`));
+      if (solutions.length >= cap) return true;
+    }
+    used[bestPiece] = false;
     return false;
   }
 
@@ -121,17 +133,17 @@ export function solveMonuments(level) {
   }
   const solutions = placePiecesAll(level, level.pieces, 200);
   if (!solutions.length) return { status: 'exhausted_no_solution', reason: 'no placement' };
-  // Try each placement solution -> phase B word solve
+
   for (const sol of solutions) {
     const assembled = assembleGrid(level, sol);
     const sub = {
       ...assembled,
-      world: level.world ?? 13,
+      world: 0,
       level: level.level,
       hints: level.hints || [],
       name: level.name,
     };
-    const res = solve(sub, { timeMs: 6000, nodeLimit: 2000000 });
+    const res = solve(sub, { timeMs: 30000, nodeLimit: 10000000, taQ: true });
     if (res.status === 'solved') {
       return { ...res, monumentPlacement: sol };
     }

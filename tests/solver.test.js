@@ -39,7 +39,9 @@ function replayAndVerify(level, steps) {
 test('regression: solve core worlds', () => {
   const stats = { solved: 0, timeout: 0, nosol: 0, unsupported: 0, errors: 0 };
   const failList = [];
+  const targetWorld = parseInt(process.env.TARGET_WORLD || '0', 10);
   for (const l of LEVELS) {
+    if (targetWorld && l.world !== targetWorld) continue;
     const pr = parseLevel(l.ascii);
     if (!pr.ok) { stats.errors++; failList.push(`${l.world}-${l.level}:parse`); continue; }
     const level = { ...pr.level, world: l.world, level: l.level, hints: l.hints, name: l.name };
