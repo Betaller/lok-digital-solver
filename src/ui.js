@@ -9,6 +9,7 @@ import { solveMonuments } from './solver-mono.js';
 import { solveArrows } from './solver-arrows.js';
 import { animateSteps, renderBoard } from './animate.js';
 import { createDrawTool } from './draw.js';
+import { generatePuzzle } from './generator.js';
 
 const WORLD_NAMES = {
   1:'LOK',2:'TLAK',3:'TA',4:'X',5:'BE',6:'GAPS',7:'LOLO',8:'QUESTION',9:'GRIVA',
@@ -34,6 +35,7 @@ export function initUI() {
   $('#btn-import-solve').addEventListener('click', () => solveFromTextarea());
   $('#btn-import-probe').addEventListener('click', () => probeFromTextarea());
   $('#btn-import-file').addEventListener('click', () => $('#file-input').click());
+  $('#btn-generate').addEventListener('click', onGeneratePuzzle);
   $('#file-input').addEventListener('change', onFileSelected);
   $('#btn-load-sample').addEventListener('click', loadSample);
   bindResultControls();
@@ -268,12 +270,28 @@ function renderSteps(steps) {
 
 function bindStepListClick(play) {
   const ol = $('#step-list');
-  ol.querySelectorAll('li').forEach(li => {
-    li.addEventListener('click', () => {
+  ol.onclick = (e) => {
+    const li = e.target.closest('li');
+    if (li && li.dataset.step !== undefined) {
       play.seekTo(parseInt(li.dataset.step, 10));
-    });
-  });
+    }
+  };
 }
+
+function onGeneratePuzzle() {
+  const cols = parseInt($('#draw-cols')?.value || 6, 10);
+  const rows = parseInt($('#draw-rows')?.value || 6, 10);
+  const opts = { cols, rows, wordCount: 2 + rnd(2), attempts: 50 };
+  const p = generatePuzzle(opts);
+  if (!p) { showError($('#import-err'), '生成失败，请重试'); return; }
+  hideError($('#import-err'));
+  $('#import-text').value = p.ascii;
+  currentLevel = { ...p.level, world: 0, level: 0, hints: [], name: '\u968f\u673a\u751f\u6210' };
+  currentMeta = null;
+  runSolve(currentLevel);
+}
+
+function rnd(n) { return Math.floor(Math.random() * n); }
 
 function showError(el, msg) {
   el.textContent = msg;

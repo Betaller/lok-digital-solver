@@ -63,7 +63,9 @@ input[type=range] { vertical-align: middle; }
 .cell.empty { background: transparent; }
 .cell.target { background: var(--target); }
 .cell.preblack { background: var(--preblack); }
-.cell.blacked { background: #000; color: #fff; }
+.cell.blacked { background: #000; color: transparent; }
+.cell.peeling { box-shadow: 0 0 0 2px var(--warn) inset; }
+.cell.oniadded { box-shadow: 0 0 0 2px var(--good) inset; }
 .cell.xcell { color: var(--accent2); }
 .cell.q { color: var(--warn); }
 .cell.w { color: #8ee6e6; }

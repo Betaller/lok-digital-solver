@@ -56,29 +56,27 @@ export function animateSteps(boardEl, level, steps) {
   let raf = null;
   let lastT = 0;
 
-  const STEP_MS = 1200;
+  const STEP_MS = 1400;
 
-  function clearState() {
+  function clearAnimClasses() {
     boardEl.querySelectorAll('.cell').forEach(c => {
-      c.classList.remove('highlight', 'flash', 'blacked', 'dim');
+      c.classList.remove('highlight', 'flash', 'dim', 'peeling', 'oniadded');
     });
-    // restore base
-    renderBlackState(boardEl, 0);
   }
 
   // apply board state up to step `n` (exclusive):
   //   - reset letters to base
   //   - apply hp changes (onion layer count) from steps 0..n-1
   //   - blacken/unblacken per recorded diff
+  //   - apply letter changes (BE)
   function renderBlackState(n) {
     // reset all cells to base (letter + hp display)
     boardEl.querySelectorAll('.cell').forEach(c => {
-      c.classList.remove('blacked', 'flash');
+      c.classList.remove('blacked', 'flash', 'peeling', 'oniadded');
       const x = +c.dataset.x, y = +c.dataset.y;
       const ch = level.grid?.[y]?.[x] ?? '-';
       const baseHp = level.onions?.[y]?.[x] ?? 0;
       c.textContent = (ch === '-' || ch === '#' || ch === '=') ? '' : ch;
-      // reset hp display
       let hpEl = c.querySelector('.hp');
       if (baseHp > 0) {
         if (!hpEl) { hpEl = document.createElement('span'); hpEl.className = 'hp'; c.appendChild(hpEl); }
@@ -94,9 +92,10 @@ export function animateSteps(boardEl, level, steps) {
       const ch = level.grid?.[y]?.[x] ?? '-';
       if (ch === '=') c.classList.add('blacked');
     });
-    // apply steps 0..n-1: hp changes first, then blackouts
+    // apply steps 0..n-1 cumulatively
     for (let i = 0; i < n; i++) {
       const s = steps[i];
+      // hp changes first (so peel/add onion before black)
       for (const hc of (s.hpChanges || [])) {
         const c = cellEls[`${hc.x},${hc.y}`];
         if (!c) continue;
@@ -126,39 +125,150 @@ export function animateSteps(boardEl, level, steps) {
   }
 
   function showStep(n) {
-    clearState();
+    clearAnimClasses();
     renderBlackState(n);
-    // highlight current step tiles: word tiles, then extra/global effect tiles
-    if (n < total) {
-      const s = steps[n];
-      // tiles to highlight = word tiles (conductors highlighted too) + any newly blackened
-      const hl = new Set();
-      for (const t of (s.tiles || [])) hl.add(`${t.x},${t.y}`);
-      for (const t of (s.blackTiles || [])) hl.add(`${t.x},${t.y}`);
-      for (const t of (s.extras || [])) hl.add(`${t.x},${t.y}`);
-      // order: word tiles first, then the rest
-      const ordered = [];
-      for (const t of (s.tiles || [])) { const k = `${t.x},${t.y}`; if (!ordered.includes(k)) ordered.push(k); }
-      for (const k of hl) if (!ordered.includes(k)) ordered.push(k);
-      ordered.forEach((k, i) => {
-        const c = cellEls[k];
-        if (c && !c.classList.contains('empty')) {
-          setTimeout(() => c.classList.add('highlight'), i * 140);
-          // if this tile has hp in the step's final state, only peel a layer (flash hp), don't blacken
-          const hc = (s.hpChanges || []).find(h => `${h.x},${h.y}` === k);
-          const becomesBlack = (s.blackTiles || []).some(t => `${t.x},${t.y}` === k) && !(hc && hc.to > 0);
-          if (becomesBlack) {
-            setTimeout(() => c.classList.add('blacked'), 380 + i * 140);
+    if (n >= total) return;
+
+    const s = steps[n];
+    const extraAction = s.extraAction || '';
+    const isTA = extraAction.startsWith('TA:');
+    const isBE = extraAction.startsWith('BE:');
+    const isABA = extraAction === 'aba';
+    const isW = extraAction.startsWith('W@');
+
+    // --- phase 1: highlight word tiles + all affected tiles ---
+    // Collect all tiles involved in this step
+    const allKeys = new Set();
+    for (const t of (s.tiles || [])) allKeys.add(`${t.x},${t.y}`);
+    for (const t of (s.blackTiles || [])) allKeys.add(`${t.x},${t.y}`);
+    for (const t of (s.extras || [])) allKeys.add(`${t.x},${t.y}`);
+    for (const t of (s.unblackTiles || [])) allKeys.add(`${t.x},${t.y}`);
+    for (const lc of (s.letterChanges || [])) allKeys.add(`${lc.x},${lc.y}`);
+
+    // word tiles first, then extras/effects, then blackTiles (global TA)
+    const ordered = [];
+    for (const t of (s.tiles || [])) { const k = `${t.x},${t.y}`; if (!ordered.includes(k)) ordered.push(k); }
+    for (const t of (s.extras || [])) { const k = `${t.x},${t.y}`; if (!ordered.includes(k)) ordered.push(k); }
+    // For TA, animate all globally-affected tiles as a batch after word tiles
+    const taGlobal = [];
+    if (isTA) {
+      for (const t of (s.blackTiles || [])) {
+        const k = `${t.x},${t.y}`;
+        if (!ordered.includes(k)) taGlobal.push(k);
+      }
+    }
+    // remaining blackTiles (non-TA) and unblackTiles
+    for (const t of (s.unblackTiles || [])) { const k = `${t.x},${t.y}`; if (!ordered.includes(k) && !taGlobal.includes(k)) ordered.push(k); }
+    for (const t of (s.blackTiles || [])) { const k = `${t.x},${t.y}`; if (!ordered.includes(k) && !taGlobal.includes(k)) ordered.push(k); }
+
+    // --- phase 2: animate word tiles first ---
+    const animDelay = (i) => i * 120;
+    ordered.forEach((k, i) => {
+      const c = cellEls[k];
+      if (!c || c.classList.contains('empty')) return;
+      setTimeout(() => c.classList.add('highlight'), animDelay(i));
+
+      const hc = (s.hpChanges || []).find(h => `${h.x},${h.y}` === k);
+      const isBlacked = (s.blackTiles || []).some(t => `${t.x},${t.y}` === k);
+      const isUnblacked = (s.unblackTiles || []).some(t => `${t.x},${t.y}` === k);
+      const hpIncreased = hc && hc.to > hc.from;
+      const hpDecreased = hc && hc.to < hc.from;
+
+      if (hpIncreased) {
+        // ABA: onion layer added
+        setTimeout(() => {
+          c.classList.add('oniadded');
+          const hpEl = c.querySelector('.hp');
+          if (!hpEl) {
+            const el = document.createElement('span');
+            el.className = 'hp';
+            el.textContent = hc.to;
+            c.appendChild(el);
+          } else {
+            hpEl.textContent = hc.to;
           }
-          setTimeout(() => c.classList.add('flash'), 380 + i * 140);
-        }
-      });
-      // letter changes (BE) animate as letter pop
-      for (const lc of (s.letterChanges || [])) {
-        const c = cellEls[`${lc.x},${lc.y}`];
-        if (c) {
-          setTimeout(() => { c.textContent = lc.to; c.classList.add('flash'); }, 500);
-        }
+        }, 400 + animDelay(i));
+        setTimeout(() => c.classList.remove('oniadded'), 900 + animDelay(i));
+      } else if (hpDecreased) {
+        // onion peel: reduce hp count, blacken only if hp goes to 0
+        setTimeout(() => {
+          c.classList.add('peeling');
+          const hpEl = c.querySelector('.hp');
+          if (hc.to > 0) {
+            if (hpEl) hpEl.textContent = hc.to;
+          } else {
+            if (hpEl) hpEl.remove();
+            c.classList.add('blacked');
+          }
+        }, 380 + animDelay(i));
+        setTimeout(() => c.classList.remove('peeling'), 900 + animDelay(i));
+      } else if (isBlacked) {
+        // regular blackening
+        setTimeout(() => c.classList.add('blacked'), 380 + animDelay(i));
+        setTimeout(() => c.classList.add('flash'), 380 + animDelay(i));
+      } else if (isUnblacked) {
+        // ABA: unblack a previously blacked tile
+        setTimeout(() => {
+          c.classList.remove('blacked');
+          c.classList.add('flash');
+        }, 380 + animDelay(i));
+      }
+    });
+
+    // --- phase 3: TA global effect (all matching tiles simultaneously) ---
+    if (isTA && taGlobal.length) {
+      setTimeout(() => {
+        taGlobal.forEach(k => {
+          const c = cellEls[k];
+          if (!c || c.classList.contains('empty')) return;
+          c.classList.add('highlight');
+        });
+      }, animDelay(ordered.length) + 100);
+      setTimeout(() => {
+        taGlobal.forEach(k => {
+          const c = cellEls[k];
+          if (!c || c.classList.contains('empty')) return;
+          c.classList.add('blacked');
+          c.classList.add('flash');
+        });
+      }, animDelay(ordered.length) + 480);
+    }
+
+    // --- phase 4: W cloud copy effect ---
+    if (isW) {
+      const shapeTiles = (s.blackTiles || []).filter(t =>
+        !(s.tiles || []).some(tt => tt.x === t.x && tt.y === t.y));
+      if (shapeTiles.length) {
+        setTimeout(() => {
+          shapeTiles.forEach(t => {
+            const c = cellEls[`${t.x},${t.y}`];
+            if (!c || c.classList.contains('empty')) return;
+            c.classList.add('highlight');
+            c.classList.add('oniadded');
+          });
+        }, animDelay(ordered.length) + 100);
+        setTimeout(() => {
+          shapeTiles.forEach(t => {
+            const c = cellEls[`${t.x},${t.y}`];
+            if (!c || c.classList.contains('empty')) return;
+            c.classList.add('blacked');
+            c.classList.add('flash');
+            c.classList.remove('oniadded');
+          });
+        }, animDelay(ordered.length) + 500);
+      }
+    }
+
+    // --- phase 5: BE letter creation ---
+    for (const lc of (s.letterChanges || [])) {
+      const c = cellEls[`${lc.x},${lc.y}`];
+      if (c) {
+        setTimeout(() => {
+          c.textContent = lc.to;
+          c.classList.add('flash');
+          c.classList.add('oniadded');
+        }, 500);
+        setTimeout(() => c.classList.remove('oniadded'), 1000);
       }
     }
   }
@@ -189,7 +299,6 @@ export function animateSteps(boardEl, level, steps) {
   function seekTo(i) { frame = Math.max(0, Math.min(i, total)); frameRef = frame * STEP_MS; showStep(frame); }
   function setSpeed(v) { speed = v; }
 
-  // initial
   showStep(0);
 
   return { play, pause, reset, next, prev, seekTo, setSpeed, get frame() { return frame; } };

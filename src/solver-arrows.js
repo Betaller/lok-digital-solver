@@ -7,42 +7,51 @@
 // We use DFS over actions: [spell a normal word] or [push an arrow].
 // This is a heuristic search; may time out on complex levels (reported honestly).
 
-import { makeBoard, cellAt, canClick, isLetterCell, isSolved, blackout, boardKey, WORD_LIBRARY } from './engine.js';
+import { makeBoard, cellAt, canClick, isLetterCell, isSolved, blackout, boardKey,
+         WORD_LIBRARY, cloneBoard, allCells, TYPE, CH } from './engine.js';
 import { findPlacements, applyWord, DIRS, Budget } from './solver.js';
 
 const ARROW_DIR = { '>': { x: 1, y: 0 }, '<': { x: -1, y: 0 }, '^': { x: 0, y: -1 }, 'v': { x: 0, y: 1 } };
 
 // Push chain: starting from arrow cell, move it + contiguous chain one step in dir.
 // Returns new cells + step description, or null if invalid (chain would exit board or hit immovable).
-function doPush(cells, arrow, dir, cols, rows) {
-  // find contiguous chain in dir: all tiles directly in line
+function doPush(grid, arrow, dir, cols, rows) {
   const chain = [];
   let cur = arrow;
   while (true) {
     chain.push(cur);
     const nx = cur.x + dir.x, ny = cur.y + dir.y;
     if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) break;
-    const nxt = cellAt(cells, nx, ny);
-    if (!nxt || nxt.type === 'empty') break;
+    const nxt = cellAt(grid, nx, ny);
+    if (!nxt || nxt.type === TYPE.EMPTY) break;
     cur = nxt;
   }
-  // check the tile beyond the chain end
   const end = chain[chain.length - 1];
   const bx = end.x + dir.x, by = end.y + dir.y;
-  if (bx < 0 || by < 0 || bx >= cols || by >= rows) return null; // would exit -> invalid
-  const beyond = cellAt(cells, bx, by);
-  if (beyond && beyond.type !== 'empty') return null; // blocked
+  if (bx < 0 || by < 0 || bx >= cols || by >= rows) return null;
+  const beyond = cellAt(grid, bx, by);
+  if (beyond && beyond.type !== TYPE.EMPTY) return null;
 
-  // move chain: each tile shifts one step
-  let out = cells.slice();
+  let out = cloneBoard(grid);
+  // move chain tiles from end to start
   for (let i = chain.length - 1; i >= 0; i--) {
     const t = chain[i];
     const nx = t.x + dir.x, ny = t.y + dir.y;
-    out = out.map(c => (c.x === t.x && c.y === t.y) ? { ...c, x: nx, y: ny } : c);
+    out[nx][ny] = { ...out[t.x][t.y], x: nx, y: ny };
   }
-  // blacken the arrow tile (now at its new position)
-  const newArrow = out.find(c => c.x === arrow.x + dir.x && c.y === arrow.y + dir.y);
-  if (newArrow) out = out.map(c => (c === newArrow || (c.x === newArrow.x && c.y === newArrow.y)) ? blackout(c) : c);
+  // clear original positions that weren't overwritten
+  for (const t of chain) {
+    const nx = t.x + dir.x, ny = t.y + dir.y;
+    // if this position's new location wasn't occupied by another tile after the move,
+    // clear it (set to empty)
+    const stillNeeded = chain.some(c => c.x + dir.x === t.x && c.y + dir.y === t.y);
+    if (!stillNeeded) {
+      out[t.x][t.y] = { ...out[t.x][t.y], type: TYPE.EMPTY, letter: '' };
+    }
+  }
+  // blacken the arrow tile at its new position
+  const nax = arrow.x + dir.x, nay = arrow.y + dir.y;
+  out[nax][nay] = blackout(out[nax][nay]);
   return { board: out, moved: chain.map(t => ({ x: t.x, y: t.y })), dir: `${dir.x},${dir.y}` };
 }
 
@@ -67,16 +76,23 @@ export function solveArrows(level, opts = {}) {
     memo.add(key);
     if (isSolved(cells)) return { status: 'solved', steps };
 
-    // 1) push actions
-    const arrows = cells.filter(c => c.type === 'letter' && ARROW_DIR[c.letter] && !c.blacked);
+    // 1) push actions: standard arrows + ? (can be read as any arrow)
+    const arrows = allCells(cells).filter(c =>
+      c.type === TYPE.LETTER && !c.blacked &&
+      (ARROW_DIR[c.letter] || c.letter === CH.WILDCARD)
+    );
     for (const a of arrows) {
-      const r = doPush(cells, a, ARROW_DIR[a.letter], cols, rows);
-      if (r) {
-        stack.push({
-          cells: r.board,
-          steps: steps.concat([{ word: a.letter, arrow: { x: a.x, y: a.y }, text: `推动箭头 ${a.letter} @ ${a.x},${a.y}` }]),
-          depth: depth + 1,
-        });
+      const dirs = a.letter === CH.WILDCARD ? Object.values(ARROW_DIR) : [ARROW_DIR[a.letter]];
+      for (const dir of dirs) {
+        const r = doPush(cells, a, dir, cols, rows);
+        if (r) {
+          const dirName = a.letter === '?' ? `?->${Object.keys(ARROW_DIR).find(k => ARROW_DIR[k] === dir)}` : a.letter;
+          stack.push({
+            cells: r.board,
+            steps: steps.concat([{ word: a.letter, arrow: { x: a.x, y: a.y }, text: `推动箭头 ${dirName} @ ${a.x},${a.y}` }]),
+            depth: depth + 1,
+          });
+        }
       }
     }
     // 2) word spell actions
@@ -84,7 +100,15 @@ export function solveArrows(level, opts = {}) {
     for (const w of words) {
       if (w.length === 1 && ARROW_DIR[w]) continue;
       if (!WORD_LIBRARY[w]) continue;
-      const placements = findPlacements(cells, w, cols, rows);
+      // find placements using all spellings
+      const placements = [];
+      const seenKeys = new Set();
+      for (const sp of WORD_LIBRARY[w].spell) {
+        for (const pl of findPlacements(cells, sp, cols, rows)) {
+          const pk = pl.tiles.map(t => `${t.x},${t.y}`).join('|');
+          if (!seenKeys.has(pk)) { seenKeys.add(pk); placements.push(pl); }
+        }
+      }
       for (const pl of placements) {
         const apps = applyWord(cells, w, pl, cols, rows);
         for (const app of apps) {

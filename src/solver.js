@@ -11,7 +11,8 @@
 // - OLKO probe independent of solving
 
 import { WORD_LIBRARY, OLKO_SPELLINGS, makeBoard, canBeCrossed, canClick,
-         isLetterCell, blackout, unblack, isSolved, boardKey, cloneBoard, cellAt } from './engine.js';
+         isLetterCell, blackout, addOnion, isSolved, boardKey, cloneBoard, cellAt,
+         allCells, putCell, CH, TYPE } from './engine.js';
 import { parseLevel } from './parse.js';
 
 export const DIRS = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
@@ -75,7 +76,7 @@ function nextInDir(cells, from, d, cols, rows) {
 //   - MAY revisit earlier tiles (this is how LOLO loops on L-O-L-O)
 // Direction reversal is allowed only for LOLO/OLOL (their loop pattern needs it);
 // for other words reversing the line is rejected.
-export function findPlacements(cells, word, cols, rows, opts = {}) {
+export function findPlacements(grid, word, cols, rows, opts = {}) {
   const allowReverse = word === 'LOLO' || word === 'OLOL';
   const maxResults = opts.maxResults ?? 10000;
   const maxRec = opts.maxRec ?? 200000;
@@ -91,7 +92,7 @@ export function findPlacements(cells, word, cols, rows, opts = {}) {
       results.push({ tiles: path.slice() });
       return;
     }
-    if (path.length > n * 3 + 1) return; // conductor cap: at most ~2 X between letters
+    if (path.length > n * 3 + 1) return; // conductor cap
     const last = path[path.length - 1];
     const want = word[idx];
     for (const d of DIRS) {
@@ -103,19 +104,29 @@ export function findPlacements(cells, word, cols, rows, opts = {}) {
         const isXlike = last.letter === 'X' || last.letter === '?';
         if (!isXlike) continue;
       }
-      const next = nextInDir(cells, last, d, cols, rows);
+      const next = nextInDir(grid, last, d, cols, rows);
       if (!next) continue;
-      // revisit rules
       const sameTile = path[path.length - 1] === next;
       if (sameTile) continue;
-      // '?' may be revisited (each pass can take a different letter); 'X' too (conductor).
-      // Other tiles may not step back to second-to-last.
       const isX = next.letter === 'X';
       const isQ = next.letter === '?';
       if (!isX && !isQ && path.length >= 2 && path[path.length - 2] === next) continue; // no double back
       let consumes = false;
       if (isX) consumes = false;            // conductor
-      else if (isQ) consumes = true;        // ? matches any letter (may differ each pass)
+      else if (isQ) {
+        // ? is both a wildcard (consumed) and a conductor (pass-through).
+        // Branch: consume as letter, AND skip as conductor.
+        let newDirQ = dir;
+        if (path.length >= 2 && dir) {
+          if (d.x === dir.x && d.y === dir.y) newDirQ = dir;
+          else newDirQ = d;
+        } else {
+          newDirQ = d;
+        }
+        if (idx < n) rec(path.concat([Object.assign({}, next, { _consume: true })]), newDirQ, idx + 1);
+        rec(path.concat([next]), newDirQ, idx);
+        continue;
+      }
       else if (next.letter === want) consumes = true;
       else continue;
       let newDir = dir;
@@ -133,12 +144,15 @@ export function findPlacements(cells, word, cols, rows, opts = {}) {
     }
   }
 
-  for (const start of cells) {
-    if (!canClick(start) || !isLetterCell(start)) continue;
-    if (start.letter === 'X') continue; // X cannot be first
-    const isQ = start.letter === '?';
-    if (!isQ && start.letter !== word[0]) continue;
-    rec([start], null, 1);
+  for (let x = 0; x < cols; x++) {
+    for (let y = 0; y < rows; y++) {
+      const start = grid[x][y];
+      if (!canClick(start) || !isLetterCell(start)) continue;
+      if (start.letter === CH.CONDUCTOR) continue; // X cannot be first
+      const isQ = start.letter === CH.WILDCARD;
+      if (!isQ && start.letter !== word[0]) continue;
+      rec([{ ...start, _consume: true }], null, 1);
+    }
   }
   return results;
 }
@@ -148,34 +162,34 @@ export function findPlacements(cells, word, cols, rows, opts = {}) {
 // ---------------------------------------------------------------------------
 
 // blacken tiles; respect hp (return updated cells list)
-function applyBlackout(cells, targets) {
-  let out = cells.slice();
+function applyBlackout(grid, targets) {
+  let out = cloneBoard(grid);
   for (const t of targets) {
-    out = out.map(c => (c.x === t.x && c.y === t.y) ? blackout(c) : c);
+    out[t.x][t.y] = blackout(out[t.x][t.y]);
   }
   return out;
 }
 
 // Generate all distinct boards after applying word `word` along `placement`.
 // extra selection differs per word type.
-export function applyWord(cells, word, placement, cols, rows, opts = {}) {
+export function applyWord(grid, word, placement, cols, rows, opts = {}) {
   const cfg = WORD_LIBRARY[word];
   const maxResults = opts.maxResults ?? 2000;
   const results = [];
-  const tileCells = placement.tiles.filter(t => t.letter !== 'X' && !(t.letter === '?' && false));
-  // determine which placement tiles actually get blackened:
-  // X tiles do NOT get blackened; ? tiles DO (treated as letter).
-  const toBlack = placement.tiles.filter(t => t.letter !== 'X');
-  let board = applyBlackout(cells, toBlack);
+  const tileCells = placement.tiles.filter(t => {
+    if (t.letter === CH.CONDUCTOR) return false;
+    if (t.letter === CH.WILDCARD) return t._consume === true;
+    return true;
+  });
+  let board = applyBlackout(grid, tileCells);
 
-  const candidates = cells.filter(c => c.type !== 'empty' && !c.blacked);
+  const allBoard = allCells(board);
+  const boardCandidates = allBoard.filter(c => c.type !== TYPE.EMPTY && !c.blacked);
   const candidateSet = (exclude = []) => {
     const ex = new Set(exclude.map(t => `${t.x},${t.y}`));
-    const out = candidates.filter(c => !ex.has(`${c.x},${c.y}`));
-    return out.slice(0, maxResults);
+    return boardCandidates.filter(c => !ex.has(`${c.x},${c.y}`)).slice(0, maxResults);
   };
 
-  // Helper: enumerate distinct resulting boards for extra selection
   function emit(boards, extraTiles, extraAction) {
     for (const b of boards) {
       if (results.length >= maxResults) break;
@@ -184,16 +198,14 @@ export function applyWord(cells, word, placement, cols, rows, opts = {}) {
   }
 
   if (cfg.clouds) {
-    // W (world 14): spelling W selects ALL unblackened W tiles; they form a shape.
-    // Clicking a target tile copies that shape onto the target: every destination
-    // cell must exist and be unblackened; then the shape's cells AND the W tiles
-    // are blackened. (DoW: for each W i as anchor, test obj + (Wj - Wi).)
-    const ws = cells.filter(c => c.letter === 'W' && !c.blacked);
-    if (ws.length === 0) return results;
+    const allCells0 = allCells(grid);
+    const ws = allCells0.filter(c => c.letter === 'W' && !c.blacked);
+    if (ws.length === 0) {
+      results.push({ board, extras: [], extraAction: 'W' });
+      return results;
+    }
     const emitted = new Set();
-    // anchor candidates: every non-empty, non-black cell (the clicked target tile)
-    const anchors = cells.filter(c => c.type !== 'empty' && !c.blacked);
-    // treat each W tile as potential anchor reference (like DoW loop over i)
+    const anchors = allCells0.filter(c => c.type !== TYPE.EMPTY && !c.blacked);
     for (const ref of ws) {
       const rx = ref.x, ry = ref.y;
       for (const anchor of anchors) {
@@ -202,8 +214,8 @@ export function applyWord(cells, word, placement, cols, rows, opts = {}) {
         for (const w of ws) {
           const dx = w.x - rx, dy = w.y - ry;
           const tx = anchor.x + dx, ty = anchor.y + dy;
-          const t = cellAt(cells, tx, ty);
-          if (!t || t.type === 'empty' || t.blacked) { ok = false; break; }
+          const t = cellAt(grid, tx, ty);
+          if (!t || t.type === TYPE.EMPTY || t.blacked) { ok = false; break; }
           if (!targets.some(x => x.x === t.x && x.y === t.y)) targets.push(t);
         }
         if (!ok) continue;
@@ -214,80 +226,68 @@ export function applyWord(cells, word, placement, cols, rows, opts = {}) {
       }
     }
   } else if (cfg.globalLetter) {
-    // TA: blacken all tiles matching a chosen letter. Choose any letter present
-    // (including X - clicking an X tile triggers ExecuteTa("X") blackening all X).
-    // Clicking a target '#' (letter="") triggers ExecuteTa("") -> blackens all targets.
+    const allCells0 = allCells(grid);
     const letters = new Set();
-    for (const c of cells) {
-      if (c.type === 'empty' || c.blacked) continue;
-      if (c.type === 'target') letters.add('');
-      else if (c.type === 'letter' && c.letter && c.letter !== '?') letters.add(c.letter);
+    for (const c of allCells0) {
+      if (c.type === TYPE.EMPTY || c.blacked) continue;
+      if (c.type === TYPE.BLANK) letters.add('');
+      else if (c.type === TYPE.LETTER && c.letter) letters.add(c.letter);
     }
+    if (opts.taQ !== true) letters.delete(CH.WILDCARD);
     for (const L of letters) {
-      const hits = cells.filter(c => {
+      const hits = allCells0.filter(c => {
         if (c.blacked) return false;
-        if (L === '') return c.type === 'target';
-        return c.type === 'letter' && c.letter === L;
+        if (L === '') return c.type === TYPE.BLANK;
+        return c.type === TYPE.LETTER && c.letter === L;
       });
       emit([applyBlackout(board, hits)], [], `TA:${L === '' ? '#' : L}`);
     }
   } else if (cfg.createLetter) {
-    // BE: choose a target '#' tile and assign it a letter. (letter choice - try letters needed)
-    const targets = cells.filter(c => c.type === 'target' && !c.blacked);
-    // Try assigning a letter that appears in the word library or currently on board
-    const pool = new Set(cells.filter(c => c.type === 'letter' && c.letter && c.letter !== 'X').map(c => c.letter));
-    for (const L of ['L','O','K','T','A','B','E','G','R','I','V','W']) {
-      pool.add(L);
+    const allCells0 = allCells(grid);
+    const targets = allCells0.filter(c => c.type === TYPE.BLANK && !c.blacked);
+    const usefulLetters = new Set();
+    for (const [_, cfg] of Object.entries(WORD_LIBRARY)) {
+      for (const sp of cfg.spell) {
+        for (const ch of sp) usefulLetters.add(ch);
+      }
     }
     for (const tgt of targets) {
-      for (const L of pool) {
-        const b = board.map(c => (c.x === tgt.x && c.y === tgt.y) ? { ...c, type: 'letter', letter: L } : c);
+      for (const L of usefulLetters) {
+        const b = putCell(board, tgt.x, tgt.y, c => ({ ...c, type: TYPE.LETTER, letter: L }));
+        if (results.length >= maxResults) return results;
         results.push({ board: b, extras: [], extraAction: `BE:${L}@${tgt.x},${tgt.y}` });
       }
     }
   } else if (cfg.diagonal) {
-    // LOLO: blacken the diagonal through the clicked tile.
-    // Game coords are y-up; in y-down display this is the x+y=const anti-diagonal.
-    // Scan from (leftmost,bottommost) to (rightmost,topmost) along (+1,+1) in game coords
-    // == in display coords scan (-1,+1)... simplest: collect cells with same (x+y).
-    const anchors = cells.filter(c => c.type !== 'empty');
+    const allCells0 = allCells(grid);
+    const anchors = allCells0.filter(c => c.type !== TYPE.EMPTY);
     const seen = new Set();
     for (const a of anchors) {
       const key = a.x + a.y;
       if (seen.has(key)) continue;
       seen.add(key);
-      const diag = cells.filter(c => c.type !== 'empty' && (c.x + c.y) === key);
-      const toBlack = diag; // targets (#) are not crossable -> included; letter tiles included
-      emit([applyBlackout(board, toBlack)], [], 'lolo');
+      const diag = allCells0.filter(c => c.type !== TYPE.EMPTY && (c.x + c.y) === key);
+      emit([applyBlackout(board, diag)], [], 'lolo');
     }
-  } else if (cfg.unblack) {
-    // ABA: blacken word tiles + choose 1 extra tile to UNBLACK (UnsetSpentAba).
-    // Target may be any non-empty tile: if black -> unblack; if not black -> hp++
-    // (per UnsetSpentAba). Both variants explored.
-    const abaCandidates = cells.filter(c => c.type !== 'empty');
+  } else if (cfg.onion) {
+    const allCells0 = allCells(grid);
+    const abaCandidates = allCells0.filter(c => c.type !== TYPE.EMPTY);
     const seenAb = new Set();
     for (const ex of abaCandidates) {
-      let b = applyBlackout(board, []);
-      if (ex.blacked) {
-        b = b.map(c => (c.x === ex.x && c.y === ex.y) ? unblack(c) : c);
-      } else {
-        // hp++ (add an onion layer) - useful when the tile will be peeled again
-        b = b.map(c => (c.x === ex.x && c.y === ex.y) ? { ...c, hp: c.hp + 1 } : c);
-      }
+      const b = putCell(board, ex.x, ex.y, addOnion);
       const k = boardKey(b);
       if (!seenAb.has(k)) { seenAb.add(k); emit([b], [ex], 'aba'); }
     }
   } else if (cfg.extra === 1) {
-    // LOK: 1 extra tile
     for (const ex of candidateSet()) {
       emit([applyBlackout(board, [ex])], [ex], 'extra');
     }
   } else if (cfg.extra === 2 && cfg.extraAdjacent) {
-    // TLAK: 2 extra tiles, same row or column, middle cells passable (AreTilesAdjacent isTlak)
     const seenPairs = new Set();
-    for (let i = 0; i < candidates.length; i++) {
-      for (let j = i + 1; j < candidates.length; j++) {
-        const a = candidates[i], b = candidates[j];
+    const bc = boardCandidates;
+    for (let i = 0; i < bc.length; i++) {
+      for (let j = i + 1; j < bc.length; j++) {
+        const a = bc[i], b = bc[j];
         const sameRow = a.y === b.y && a.x !== b.x;
         const sameCol = a.x === b.x && a.y !== b.y;
         if (!sameRow && !sameCol) continue;
@@ -325,25 +325,24 @@ export function applyWord(cells, word, placement, cols, rows, opts = {}) {
 // ---------------------------------------------------------------------------
 
 // Pre-checks for cheap no-solution
-function precheck(cells) {
-  // any non-empty non-black cell that is a letter? if board has zero letters -> unsolvable unless already solved
-  const anyLetter = cells.some(c => c.type === 'letter' && !c.blacked && c.letter && c.letter !== 'X');
-  if (!anyLetter && !isSolved(cells)) {
-    // maybe only targets need blackout; targets can be blacked only via words, so no letters => impossible
-    const anyTarget = cells.some(c => (c.type === 'target') && !c.blacked);
+function precheck(grid) {
+  const all = allCells(grid);
+  const anyLetter = all.some(c => c.type === TYPE.LETTER && !c.blacked && c.letter && c.letter !== CH.CONDUCTOR);
+  if (!anyLetter && !isSolved(grid)) {
+    const anyTarget = all.some(c => c.type === TYPE.BLANK && !c.blacked);
     if (anyTarget) return false;
-    return isSolved(cells);
+    return isSolved(grid);
   }
   return null; // unknown
 }
 
 export function solve(level, opts = {}) {
-  const { timeMs = 5000, nodeLimit = 2000000, memoCap = 200000 } = opts;
+  const { timeMs = 5000, nodeLimit = 2000000, memoCap = 500000, taQ = false } = opts;
   if (level.world === 13) {
-    return { status: 'unsupported', reason: 'monuments' }; // handled by solver-mono
+    return { status: 'unsupported', reason: 'monuments' };
   }
   if (level.world === 12) {
-    return { status: 'unsupported', reason: 'arrows' }; // handled by arrow solver
+    return { status: 'unsupported', reason: 'arrows' };
   }
   const budget = new Budget({ timeMs, nodeLimit, memoCap });
   const cells0 = makeBoard(level);
@@ -353,9 +352,9 @@ export function solve(level, opts = {}) {
   if (pc === false) return { status: 'exhausted_no_solution', steps: [] };
   if (pc === true) return { status: 'solved', steps: [] };
 
-  // iterative DFS with explicit stack
   const memo = new Map();
-  let best = { maxBlacked: cells0.filter(c => c.blacked && c.type !== 'empty').length, board: cells0, steps: [] };
+  const all0 = allCells(cells0);
+  let best = { maxBlacked: all0.filter(c => c.blacked && c.type !== TYPE.EMPTY).length, board: cells0, steps: [] };
   const maxDepth = (level.hints?.length ?? 1) * 2 + 8;
 
   const stack = [{ cells: cells0, steps: [], depth: 0 }];
@@ -375,11 +374,10 @@ export function solve(level, opts = {}) {
     if (isSolved(cells)) {
       return { status: 'solved', steps };
     }
-    // update best progress
-    const bCnt = cells.filter(c => c.type !== 'empty' && c.blacked).length;
+    const allC = allCells(cells);
+    const bCnt = allC.filter(c => c.type !== TYPE.EMPTY && c.blacked).length;
     if (bCnt > best.maxBlacked) best = { maxBlacked: bCnt, board: cells, steps };
 
-    // generate candidate word placements (free library), prefer hints first
     if (!budget.check()) {
       return { status: 'timeout', progress: best, reason: 'budget' };
     }
@@ -387,23 +385,40 @@ export function solve(level, opts = {}) {
     if (level.hints) {
       for (const h of level.hints) if (WORD_LIBRARY[h]) words.push(h);
     }
-    // add words that are actually spellable on this board (free derivation)
     const spellable = new Set();
     for (const w of Object.keys(WORD_LIBRARY)) {
       if (words.includes(w)) continue;
-      if (findPlacements(cells, w, cols, rows, { maxRec: 20000 }).length > 0) spellable.add(w);
+      const cfg = WORD_LIBRARY[w];
+      for (const sp of cfg.spell) {
+        if (findPlacements(cells, sp, cols, rows, { maxRec: 500 }).length > 0) {
+          spellable.add(w);
+          break;
+        }
+      }
     }
     const ordered = words.concat([...spellable]);
     let pushed = 0;
     for (const w of ordered) {
-      const placements = findPlacements(cells, w, cols, rows, { maxRec: 20000 });
+      const placements = [];
+      const seenKeys = new Set();
+      const cfg = WORD_LIBRARY[w];
+      if (cfg) {
+        for (const sp of cfg.spell) {
+          for (const pl of findPlacements(cells, sp, cols, rows, { maxRec: 20000 })) {
+            const pk = pl.tiles.map(t => `${t.x},${t.y}`).join('|');
+            if (!seenKeys.has(pk)) { seenKeys.add(pk); placements.push(pl); }
+            if (placements.length >= 200) break;
+          }
+          if (placements.length >= 200) break;
+        }
+      }
+      if (placements.length === 0) continue;
       for (const pl of placements) {
-        const apps = applyWord(cells, w, pl, cols, rows, { maxResults: 800 });
+        const apps = applyWord(cells, w, pl, cols, rows, { maxResults: 800, taQ });
         for (const app of apps) {
           if (!budget.check()) {
             return { status: 'timeout', progress: best, reason: 'budget' };
           }
-          // compute exact effect diff (which cells change) for reliable replay/validation
           const { blackTiles, unblackTiles, letterChanges, hpChanges } = diffCells(cells, app.board);
           stack.push({ cells: app.board, steps: steps.concat([{
             word: w,
@@ -424,9 +439,11 @@ export function solve(level, opts = {}) {
 
 // Diff two boards: which cells got blackened / unblackened / letter-changed.
 function diffCells(before, after) {
+  const ba = allCells(before);
+  const aa = allCells(after);
   const key = c => `${c.x},${c.y}`;
-  const bMap = new Map(before.map(c => [key(c), c]));
-  const aMap = new Map(after.map(c => [key(c), c]));
+  const bMap = new Map(ba.map(c => [key(c), c]));
+  const aMap = new Map(aa.map(c => [key(c), c]));
   const blackTiles = [], unblackTiles = [], letterChanges = [], hpChanges = [];
   for (const [k, a] of aMap) {
     const b = bMap.get(k);

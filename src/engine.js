@@ -1,15 +1,25 @@
 // engine.js - LOK Digital board model + word effect executor.
 // PURE functions, zero dependencies. Used by solver, animation, tests.
 //
-// Cell types:
-//   'empty'          - '-' no tile, can be crossed freely
-//   'target'         - '#' blank tile, must be blackened via extra blackouts
-//   'preblack'       - '=' blank tile, already blackened at start
-//   'letter'         - a letter tile (letter may be X, ?, W, arrows...)
-//
-// Cell fields: {x,y,type,letter,hp,blacked}
-//   hp: onion layers; blackout on hp>0 decrements hp without blackening.
-//   blacked: currently black.
+// Board = 2D array cells[cols][rows] for O(1) lookup.
+// Cell = {x, y, type, letter, hp, blacked}
+
+// Character constants
+export const CH = {
+  EMPTY:    '-',
+  BLANK:    '#',
+  PREBLACK: '=',
+  CONDUCTOR:'X',
+  WILDCARD: '?',
+};
+
+// Cell type constants
+export const TYPE = {
+  EMPTY:    'empty',
+  BLANK:    'target',
+  PREBLACK: 'preblack',
+  LETTER:   'letter',
+};
 
 export const WORD_LIBRARY = {
   LOK:   { spell: ['LOK', 'KOL'],   extra: 1 },
@@ -17,12 +27,11 @@ export const WORD_LIBRARY = {
   TA:    { spell: ['TA', 'AT'],     extra: 0, globalLetter: true },
   BE:    { spell: ['BE', 'EB'],     extra: 0, createLetter: true },
   LOLO:  { spell: ['LOLO', 'OLOL'], extra: 0, diagonal: true },
-  ABA:   { spell: ['ABA'],          extra: 1, unblack: true },
+  ABA:   { spell: ['ABA'],          extra: 1, onion: true },
   GRIVA: { spell: ['GRIVA', 'AVIRG'], extra: 0 },
   W:     { spell: ['W'],            extra: 0, clouds: true },
 };
 
-// Words that can be spelled from board letters (incl. reversed). Used by solver.
 export const ALL_SPELLINGS = Object.values(WORD_LIBRARY)
   .flatMap(w => w.spell)
   .filter(s => !s.includes('W') || s === 'W');
@@ -32,69 +41,100 @@ export const OLKO_SPELLINGS = ['OLKO', 'OKLO'];
 // ---------------------------------------------------------------- board utils
 
 export function makeBoard(level) {
-  // level = {cols, rows, grid: string[][] } or Level object from parse.js
-  const cells = [];
-  for (let y = 0; y < level.rows; y++) {
-    for (let x = 0; x < level.cols; x++) {
-      const ch = (level.grid?.[y]?.[x]) ?? '-';
-      let type = 'empty';
-      let letter = '';
-      let hp = 0;
-      let blacked = false;
-      if (ch === '-') { type = 'empty'; }
-      else if (ch === '#') { type = 'target'; }
-      else if (ch === '=') { type = 'preblack'; blacked = true; }
-      else { type = 'letter'; letter = ch; }
+  const cols = level.cols, rows = level.rows;
+  const grid = new Array(cols);
+  for (let x = 0; x < cols; x++) {
+    grid[x] = new Array(rows);
+    for (let y = 0; y < rows; y++) {
+      const ch = (level.grid?.[y]?.[x]) ?? CH.EMPTY;
+      let type, letter = '', hp = 0, blacked = false;
+      if (ch === CH.EMPTY)      { type = TYPE.EMPTY; }
+      else if (ch === CH.BLANK) { type = TYPE.BLANK; }
+      else if (ch === CH.PREBLACK) { type = TYPE.PREBLACK; blacked = true; }
+      else                      { type = TYPE.LETTER; letter = ch; }
       if (level.onions?.[y]?.[x]) hp = level.onions[y][x];
-      cells.push({ x, y, type, letter, hp, blacked });
+      grid[x][y] = { x, y, type, letter, hp, blacked };
     }
   }
-  return cells;
+  grid._cols = cols;
+  grid._rows = rows;
+  return grid;
 }
 
-export function cellAt(cells, x, y) {
-  return cells.find(c => c.x === x && c.y === y);
+export function cellAt(grid, x, y) {
+  if (x < 0 || y < 0 || x >= grid._cols || y >= grid._rows) return undefined;
+  return grid[x][y];
 }
 
-// A tile can be crossed when spelling if it is empty, blacked, or active w/ hp==0.
+// Flatten to array for iteration
+export function allCells(grid) {
+  const out = [];
+  for (let x = 0; x < grid._cols; x++)
+    for (let y = 0; y < grid._rows; y++)
+      out.push(grid[x][y]);
+  return out;
+}
+
+export function cloneBoard(grid) {
+  const cols = grid._cols, rows = grid._rows;
+  const out = new Array(cols);
+  for (let x = 0; x < cols; x++) {
+    out[x] = new Array(rows);
+    for (let y = 0; y < rows; y++)
+      out[x][y] = { ...grid[x][y] };
+  }
+  out._cols = cols;
+  out._rows = rows;
+  return out;
+}
+
+export function putCell(grid, x, y, fn) {
+  const out = cloneBoard(grid);
+  out[x][y] = fn(out[x][y]);
+  return out;
+}
+
 export function canBeCrossed(cell) {
-  if (!cell) return true;                 // no tile = empty space
-  if (cell.type === 'empty') return true;
-  if (cell.blacked) return true;          // blacked tiles are bridges
-  if (cell.type === 'target') return false;
-  return cell.hp === 0;                   // letter tiles block unless hp broken (not represented in static solver)
+  if (!cell) return true;
+  if (cell.type === TYPE.EMPTY) return true;
+  if (cell.blacked) return true;
+  if (cell.type === TYPE.BLANK) return false;
+  return cell.hp === 0;
 }
 
 export function canClick(cell) {
   if (!cell) return false;
-  if (cell.type === 'empty') return false;
-  if (cell.blacked) return false;         // blacked cannot be re-spelled (except ABA target)
+  if (cell.type === TYPE.EMPTY) return false;
+  if (cell.blacked) return false;
   return true;
 }
 
 export function isLetterCell(cell) {
-  return cell && cell.type === 'letter' && cell.letter && cell.letter !== '-';
+  return cell && cell.type === TYPE.LETTER && cell.letter && cell.letter !== CH.EMPTY;
 }
 
-// Blackout: if hp>0 decrement only; else blacken. Returns new cell (immutable-ish copy).
 export function blackout(cell) {
   if (cell.hp > 0) return { ...cell, hp: cell.hp - 1, blacked: false };
   return { ...cell, blacked: true };
 }
 
-export function unblack(cell) {
-  return { ...cell, blacked: false };
+export function addOnion(cell) {
+  return { ...cell, hp: cell.hp + 1, blacked: false };
 }
 
-// Is the board solved? all non-empty cells blacked.
-export function isSolved(cells) {
-  return cells.every(c => c.type === 'empty' || c.blacked);
+export function isSolved(grid) {
+  for (let x = 0; x < grid._cols; x++)
+    for (let y = 0; y < grid._rows; y++)
+      if (grid[x][y].type !== TYPE.EMPTY && !grid[x][y].blacked) return false;
+  return true;
 }
 
-export function boardKey(cells) {
-  return cells.map(c => `${c.type}:${c.letter}:${c.hp}:${c.blacked ? 1 : 0}`).join('|');
-}
-
-export function cloneBoard(cells) {
-  return cells.map(c => ({ ...c }));
+export function boardKey(grid) {
+  const parts = [];
+  for (let x = 0; x < grid._cols; x++)
+    for (let y = 0; y < grid._rows; y++) {
+      const c = grid[x][y];
+      parts.push(`${c.type}:${c.letter}:${c.hp}:${c.blacked ? 1 : 0}`);
+    }
+  return parts.join('|');
 }

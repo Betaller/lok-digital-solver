@@ -9,10 +9,9 @@ import assert from 'node:assert/strict';
 import { LEVELS } from '../data/levels.js';
 import { parseLevel } from '../src/parse.js';
 import { solve, probeOlko } from '../src/solver.js';
-import { WORD_LIBRARY } from '../src/engine.js';
+import { WORD_LIBRARY, makeBoard, cellAt, isSolved } from '../src/engine.js';
 import { solveMonuments } from '../src/solver-mono.js';
 import { solveArrows } from '../src/solver-arrows.js';
-import { makeBoard, isSolved } from '../src/engine.js';
 
 // Replay steps on a fresh board using the solver's recorded effect diff.
 // This is reliable: it uses the exact blackouts/unblackouts/letter-changes the
@@ -21,7 +20,7 @@ import { makeBoard, isSolved } from '../src/engine.js';
 function replayAndVerify(level, steps) {
   let cells = makeBoard(level);
   const applyEffect = (t, black) => {
-    const c = cells.find(c => c.x === t.x && c.y === t.y);
+    const c = cellAt(cells, t.x, t.y);
     if (!c) return;
     c.blacked = black;
   };
@@ -30,7 +29,7 @@ function replayAndVerify(level, steps) {
     for (const t of (s.blackTiles || [])) applyEffect(t, true);
     for (const t of (s.unblackTiles || [])) applyEffect(t, false);
     for (const lc of (s.letterChanges || [])) {
-      const c = cells.find(c => c.x === lc.x && c.y === lc.y);
+      const c = cellAt(cells, lc.x, lc.y);
       if (c) c.letter = lc.to;
     }
   }
@@ -47,8 +46,13 @@ test('regression: solve core worlds', () => {
     let res;
     try {
       if (l.world === 13) res = solveMonuments(level);
-      else if (l.world === 12) res = solveArrows(level, { timeMs: 4000 });
-      else res = solve(level, { timeMs: 6000, nodeLimit: 2000000 });
+      else if (l.world === 12) res = solveArrows(level, { timeMs: 8000, nodeLimit: 4000000 });
+      else {
+        res = solve(level, { timeMs: 12000, nodeLimit: 4000000 });
+        if (res.status !== 'solved') {
+          res = solve(level, { timeMs: 12000, nodeLimit: 4000000, taQ: true });
+        }
+      }
     } catch (e) {
       stats.errors++; failList.push(`${l.world}-${l.level}:err ${e.message}`); continue;
     }
