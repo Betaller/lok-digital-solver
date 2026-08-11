@@ -5,3 +5,7 @@ dist/
 exports/
 test-results/
 *.tmp
+
+data/source/LOK.pdf
+data/solutions.txt
+tools/readpdf.cjs

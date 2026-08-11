@@ -248,6 +248,7 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
         for (const ch of sp) usefulLetters.add(ch);
       }
     }
+    usefulLetters.add(CH.WILDCARD); // BE can create ?
     for (const tgt of targets) {
       for (const L of usefulLetters) {
         const b = putCell(board, tgt.x, tgt.y, c => ({ ...c, type: TYPE.LETTER, letter: L }));
