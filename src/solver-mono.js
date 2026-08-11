@@ -2,7 +2,7 @@
 // Phase A: place pieces onto monument slots (#) via backtracking (no overlap, no fake slot X, cover all real slots).
 // Phase B: run the core word solver on the assembled letter grid.
 import { parseLevel, exportLevel } from './parse.js';
-import { makeBoard, cellAt, isSolved, boardKey } from './engine.js';
+import { makeBoard, cellAt, isSolved, boardKey, WORD_LIBRARY } from './engine.js';
 import { solve } from './solver.js';
 
 // Build the slot layout from parsed Level: slots are cells where grid char is '#'
@@ -105,11 +105,9 @@ export function placePiecesAll(level, pieces, cap = 200) {
   return solutions;
 }
 
-// Build the assembled letter grid from a phase-A solution:
-//   - piece letters become letter tiles
-//   - leftover real slots (#) become blank target tiles
-//   - fake slots (X) and empty cells stay empty
-export function assembleGrid(level, solution) {
+// Build the assembled letter grid from a phase-A solution.
+// qAssign: optional Map of "x,y" -> letter for ? wildcard assignment.
+export function assembleGrid(level, solution, qAssign) {
   const g = Array.from({ length: level.rows }, () => Array(level.cols).fill('-'));
   const on = Array.from({ length: level.rows }, () => Array(level.cols).fill(0));
   const { slots } = collectSlots(level);
@@ -120,8 +118,13 @@ export function assembleGrid(level, solution) {
   }
   for (const piece of solution) {
     for (const c of piece.cells) {
-      if (c.letter === '#') g[c.y][c.x] = '#';
-      else { g[c.y][c.x] = c.letter; on[c.y][c.x] = c.hp || 0; }
+      let letter = c.letter;
+      if (letter === '?' && qAssign) {
+        const key = `${c.x},${c.y}`;
+        letter = qAssign.get(key) ?? '?';
+      }
+      if (letter === '#') g[c.y][c.x] = '#';
+      else { g[c.y][c.x] = letter; on[c.y][c.x] = c.hp || 0; }
     }
   }
   return { cols: level.cols, rows: level.rows, grid: g, onions: on };
@@ -134,18 +137,51 @@ export function solveMonuments(level) {
   const solutions = placePiecesAll(level, level.pieces, 200);
   if (!solutions.length) return { status: 'exhausted_no_solution', reason: 'no placement' };
 
+  const usefulLetters = new Set();
+  for (const cfg of Object.values(WORD_LIBRARY)) {
+    for (const sp of cfg.spell) for (const ch of sp) usefulLetters.add(ch);
+  }
+  usefulLetters.add('X');
+  const qLetters = [...usefulLetters];
+
   for (const sol of solutions) {
-    const assembled = assembleGrid(level, sol);
-    const sub = {
-      ...assembled,
-      world: 0,
-      level: level.level,
-      hints: level.hints || [],
-      name: level.name,
-    };
-    const res = solve(sub, { timeMs: 30000, nodeLimit: 10000000, taQ: true });
-    if (res.status === 'solved') {
-      return { ...res, monumentPlacement: sol };
+    const qPos = [];
+    for (const p of sol) for (const c of p.cells) {
+      if (c.letter === '?') qPos.push(c);
+    }
+    if (!qPos.length) {
+      const assembled = assembleGrid(level, sol);
+      const res = solve({ ...assembled, world: 0, level: level.level, hints: level.hints || [], name: level.name },
+                        { timeMs: 30000, nodeLimit: 10000000, taQ: true });
+      if (res.status === 'solved') return { ...res, monumentPlacement: sol };
+      continue;
+    }
+
+    // Try ? assignments, but only those where all hint words become spellable
+    const hints = level.hints || [];
+    for (const a of qLetters) {
+      for (const b of qLetters) {
+        const m = new Map();
+        m.set(qPos[0].x + ',' + qPos[0].y, a);
+        if (qPos.length > 1) m.set(qPos[1].x + ',' + qPos[1].y, b);
+        const assembled = assembleGrid(level, sol, m);
+        const grid = makeBoard(assembled);
+        let allOk = true;
+        for (const h of hints) {
+          if (!WORD_LIBRARY[h]) continue;
+          let found = false;
+          for (const sp of WORD_LIBRARY[h].spell) {
+            if (findPlacements(grid, sp, assembled.cols, assembled.rows, { maxRec: 2000 }).length > 0) {
+              found = true; break;
+            }
+          }
+          if (!found) { allOk = false; break; }
+        }
+        if (!allOk) continue;
+        const res = solve({ ...assembled, world: 0, level: level.level, hints: level.hints || [], name: level.name },
+                          { timeMs: 30000, nodeLimit: 10000000, taQ: true });
+        if (res.status === 'solved') return { ...res, monumentPlacement: sol };
+      }
     }
   }
   return { status: 'exhausted_no_solution', reason: 'phaseB' };
