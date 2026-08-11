@@ -110,23 +110,18 @@ export function placePiecesAll(level, pieces, cap = 200) {
 export function assembleGrid(level, solution, qAssign) {
   const g = Array.from({ length: level.rows }, () => Array(level.cols).fill('-'));
   const on = Array.from({ length: level.rows }, () => Array(level.cols).fill(0));
-  const { slots } = collectSlots(level);
-  const occupied = new Set();
-  for (const piece of solution) for (const c of piece.cells) occupied.add(`${c.x},${c.y}`);
-  for (const s of slots) {
-    if (!occupied.has(`${s.x},${s.y}`)) g[s.y][s.x] = '#';
-  }
   for (const piece of solution) {
     for (const c of piece.cells) {
       let letter = c.letter;
       if (letter === '?' && qAssign) {
-        const key = `${c.x},${c.y}`;
-        letter = qAssign.get(key) ?? '?';
+        letter = qAssign.get(`${c.x},${c.y}`) ?? '?';
       }
+      // piece cells with '#' stay as targets; all other letters become letter tiles
       if (letter === '#') g[c.y][c.x] = '#';
       else { g[c.y][c.x] = letter; on[c.y][c.x] = c.hp || 0; }
     }
   }
+  // unfilled slots stay as '-' (empty), not targets
   return { cols: level.cols, rows: level.rows, grid: g, onions: on };
 }
 
