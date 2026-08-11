@@ -270,11 +270,15 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
       emit([applyBlackout(board, diag)], [], 'lolo');
     }
   } else if (cfg.onion) {
+    // ABA: blacken word tiles + add 1 onion OR unblack a blacked tile.
     const allCells0 = allCells(grid);
     const abaCandidates = allCells0.filter(c => c.type !== TYPE.EMPTY);
     const seenAb = new Set();
     for (const ex of abaCandidates) {
-      const b = putCell(board, ex.x, ex.y, addOnion);
+      const cell = cellAt(grid, ex.x, ex.y); // original state
+      const b = cell.blacked
+        ? putCell(board, ex.x, ex.y, c => ({ ...c, hp: 0, blacked: false }))  // unblack
+        : putCell(board, ex.x, ex.y, addOnion);                                  // hp++
       const k = boardKey(b);
       if (!seenAb.has(k)) { seenAb.add(k); emit([b], [ex], 'aba'); }
     }
