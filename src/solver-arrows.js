@@ -1,7 +1,7 @@
 // solver-arrows.js - World 12 arrow push solver with A* priority search.
 import { makeBoard, cellAt, isSolved, blackout, boardKey,
          WORD_LIBRARY, cloneBoard, allCells, TYPE, CH } from './engine.js';
-import { findPlacements, applyWord, Budget } from './solver.js';
+import { findPlacements, applyWord, Budget, diffCells } from './solver.js';
 
 const ARROW_DIR = { '>': { x: 1, y: 0 }, '<': { x: -1, y: 0 }, '^': { x: 0, y: -1 }, 'v': { x: 0, y: 1 } };
 
@@ -113,7 +113,13 @@ export function solveArrows(level, opts = {}) {
         const r = doPush(cells, a, dir, cols, rows);
         if (!r) continue;
         pqPush(queue, {
-          cells: r.board, steps: steps.concat([{ word: a.letter, arrow: { x: a.x, y: a.y }, text: `推 ${a.letter} @ ${a.x},${a.y}` }]),
+          cells: r.board, steps: steps.concat([{
+            type: 'push', word: a.letter,
+            arrow: { x: a.x, y: a.y },
+            dir: { x: dir.x, y: dir.y },
+            moved: r.moved.map(t => ({ x: t.x, y: t.y })),
+            text: `推 ${a.letter} @ ${a.x},${a.y}`
+          }]),
           depth: depth + 1,
         });
       }
@@ -127,8 +133,17 @@ export function solveArrows(level, opts = {}) {
         for (const pl of findPlacements(cells, sp, cols, rows, { maxRec: 10000 })) {
           const apps = applyWord(cells, w, pl, cols, rows, { maxResults: 200, taQ: true });
           for (const app of apps) {
+            const diff = diffCells(cells, app.board);
             pqPush(queue, {
-              cells: app.board, steps: steps.concat([{ word: w, text: `拼 ${w}` }]),
+              cells: app.board, steps: steps.concat([{
+                type: 'word', word: w,
+                tiles: pl.tiles.map(t => ({ x: t.x, y: t.y })),
+                extras: (app.extras || []).map(t => ({ x: t.x, y: t.y })),
+                extraAction: app.extraAction,
+                blackTiles: diff.blackTiles, unblackTiles: diff.unblackTiles,
+                letterChanges: diff.letterChanges, hpChanges: diff.hpChanges,
+                text: `拼 ${w}`,
+              }]),
               depth: depth + 1,
             });
             if (++wcount >= 30) break;

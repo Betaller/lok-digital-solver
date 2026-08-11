@@ -7,7 +7,7 @@ import { makeBoard, isSolved, boardKey, cellAt } from './engine.js';
 import { solve, probeOlko } from './solver.js';
 import { solveMonuments, assembleGrid } from './solver-mono.js';
 import { solveArrows } from './solver-arrows.js';
-import { animateSteps, renderBoard } from './animate.js';
+import { animateSteps, renderBoard, animateArrowSteps } from './animate.js';
 import { createDrawTool } from './draw.js';
 import { generatePuzzle } from './generator.js';
 
@@ -206,8 +206,13 @@ function showResult(level, res) {
       boardLevel.hints = level.hints || [];
       boardLevel.name = level.name;
     }
-    wrap.appendChild(renderBoard(boardLevel));
-    const play = animateSteps(wrap.querySelector('.board'), boardLevel, res.steps);
+    let play;
+    if (level.world === 12) {
+      play = animateArrowSteps(wrap, boardLevel, res.steps);
+    } else {
+      wrap.appendChild(renderBoard(boardLevel));
+      play = animateSteps(wrap.querySelector('.board'), boardLevel, res.steps);
+    }
     window.__play = play;
     renderSteps(res.steps);
     $('#btn-play').onclick = () => play.play();

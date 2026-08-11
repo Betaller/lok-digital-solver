@@ -1,7 +1,7 @@
 // animate.js - render board as DOM + virtual-timeline playback (WAAPI-free, rAF loop).
 // Depends on engine only (board model + step descriptors).
 
-import { cellAt } from './engine.js';
+import { cellAt, makeBoard, cloneBoard, blackout, allCells } from './engine.js';
 
 // Render a board (Level) as a DOM element `.board`
 export function renderBoard(level, opts = {}) {
@@ -306,4 +306,124 @@ export function animateSteps(boardEl, level, steps) {
 
 export function renderStepsHtml(steps) {
   return steps.map((s, i) => `<li>${i + 1}. ${s.text || ''}</li>`).join('');
+}
+
+// --- Arrow puzzle replay & animation ---
+
+// Replay arrow steps from the initial level, returning a Level-like board state per step.
+function replayArrowSteps(level, steps) {
+  const cols = level.cols, rows = level.rows;
+  let cells = makeBoard(level);
+  const states = [];
+
+  function cellsToLevel(c, stepIdx) {
+    const g = Array.from({ length: rows }, () => Array(cols).fill('-'));
+    const on = Array.from({ length: rows }, () => Array(cols).fill(0));
+    const all = allCells(c);
+    for (const cell of all) {
+      if (cell.type === 'letter' && cell.letter && !cell.blacked && cell.letter !== '-') {
+        g[cell.y][cell.x] = cell.letter;
+        on[cell.y][cell.x] = cell.hp || 0;
+      } else if (cell.type === 'letter' && cell.blacked && cell.letter && cell.letter !== '-') {
+        g[cell.y][cell.x] = '=';
+      }
+      // empty cells stay '-' (default)
+    }
+    return { cols, rows, grid: g, onions: on };
+  }
+
+  states.push(cellsToLevel(cells, 0));
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const stepType = s.type || (s.arrow ? 'push' : 'word');
+    if (stepType === 'push' && s.moved && s.dir) {
+      let out = cloneBoard(cells);
+      // Move tiles in reverse order (furthest first)
+      const moved = s.moved;
+      for (let mi = moved.length - 1; mi >= 0; mi--) {
+        const m = moved[mi];
+        const nx = m.x + s.dir.x, ny = m.y + s.dir.y;
+        out[nx][ny] = { ...out[m.x][m.y], x: nx, y: ny };
+      }
+      for (const m of moved) {
+        const stillNeeded = moved.some(
+          c => c.x + s.dir.x === m.x && c.y + s.dir.y === m.y
+        );
+        if (!stillNeeded) out[m.x][m.y] = { x: m.x, y: m.y, type: 'empty', letter: '', hp: 0, blacked: false };
+      }
+      // Arrow is blacked after push
+      const ax = s.arrow.x + s.dir.x, ay = s.arrow.y + s.dir.y;
+      out[ax][ay] = blackout(out[ax][ay]);
+      cells = out;
+    } else if (stepType === 'word') {
+      let out = cloneBoard(cells);
+      for (const t of (s.blackTiles || [])) out[t.x][t.y] = blackout(out[t.x][t.y]);
+      for (const t of (s.unblackTiles || [])) {
+        if (out[t.x][t.y]) out[t.x][t.y].blacked = false;
+      }
+      for (const lc of (s.letterChanges || [])) {
+        if (out[lc.x][lc.y]) {
+          out[lc.x][lc.y].letter = lc.to;
+          out[lc.x][lc.y].type = 'letter';
+        }
+      }
+      for (const hc of (s.hpChanges || [])) {
+        if (out[hc.x][hc.y]) out[hc.x][hc.y].hp = hc.to;
+      }
+      cells = out;
+    }
+    states.push(cellsToLevel(cells, i + 1));
+  }
+  return states;
+}
+
+// Play arrow steps by swapping board states (pre-rendered).
+export function animateArrowSteps(boardWrap, level, steps) {
+  const states = replayArrowSteps(level, steps);
+  const total = steps.length;
+  let frame = 0;
+  let playing = false;
+  let speed = 1;
+  let raf = null;
+  let lastT = 0;
+  const STEP_MS = 1400;
+
+  // Build all board DOMs (states has total+1: init + after each step)
+  const boardEls = states.map(s => renderBoard(s));
+  boardEls.forEach(el => {
+    el.style.display = 'none';
+    boardWrap.appendChild(el);
+  });
+  boardEls[0].style.display = '';
+
+  function showStep(n) {
+    if (frame < boardEls.length) boardEls[frame].style.display = 'none';
+    frame = Math.max(0, Math.min(n, total));
+    boardEls[frame].style.display = '';
+  }
+
+  function tick(ts) {
+    if (!playing) return;
+    if (!lastT) lastT = ts;
+    const dt = ts - lastT;
+    lastT = ts;
+    frameRef += dt * speed;
+    const idx = Math.floor(frameRef / STEP_MS);
+    if (idx !== frame) showStep(Math.min(idx, total));
+    if (frame >= total) { playing = false; pause(); return; }
+    raf = requestAnimationFrame(tick);
+  }
+  let frameRef = 0;
+
+  function play() { playing = true; lastT = 0; raf = requestAnimationFrame(tick); }
+  function pause() { playing = false; if (raf) cancelAnimationFrame(raf); raf = null; }
+  function reset() { frame = 0; frameRef = 0; playing = false; showStep(0); }
+  function next() { if (frame < total) showStep(frame + 1); }
+  function prev() { if (frame > 0) showStep(frame - 1); }
+  function seekTo(i) { showStep(i); }
+  function setSpeed(v) { speed = v; }
+
+  showStep(0);
+  return { play, pause, reset, next, prev, seekTo, setSpeed, get frame() { return frame; } };
 }

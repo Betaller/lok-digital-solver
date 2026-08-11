@@ -438,7 +438,7 @@ export function solve(level, opts = {}) {
 }
 
 // Diff two boards: which cells got blackened / unblackened / letter-changed.
-function diffCells(before, after) {
+export function diffCells(before, after) {
   const ba = allCells(before);
   const aa = allCells(after);
   const key = c => `${c.x},${c.y}`;
