@@ -75,12 +75,12 @@ function heuristic(cells, targetWords) {
   return bestCost + Math.max(0, letters.length - tl);
 }
 
-function pqPush(arr, item) { arr.push(item); arr.sort((a, b) => a.score - b.score); }
+function pqPush(arr, item) { arr.push(item); } // BFS queue
 function pqPop(arr) { return arr.shift(); }
 
 export function solveArrows(level, opts = {}) {
-  const { timeMs = 6000, nodeLimit = 2000000 } = opts;
-  const budget = new Budget({ timeMs, nodeLimit, memoCap: 500000 });
+  const { timeMs = 30000, nodeLimit = 10000000 } = opts;
+  const budget = new Budget({ timeMs, nodeLimit, memoCap: 5000000 });
   const cells0 = makeBoard(level);
   const cols = level.cols, rows = level.rows;
   if (isSolved(cells0)) return { status: 'solved', steps: [] };
@@ -89,18 +89,17 @@ export function solveArrows(level, opts = {}) {
   const targetWords = hints.filter(w => WORD_LIBRARY[w] && !ARROW_DIR[w]);
 
   const memo = new Set();
-  const maxDepth = 30;
-  const pq = [{ cells: cells0, steps: [], depth: 0, score: heuristic(cells0, targetWords) }];
+  const maxDepth = 25;
+  const queue = [{ cells: cells0, steps: [], depth: 0 }];
 
-  while (pq.length) {
+  while (queue.length) {
     if (!budget.check()) return { status: 'timeout', reason: 'budget' };
-    const fr = pqPop(pq);
+    const fr = pqPop(queue);
     const { cells, steps, depth } = fr;
     if (depth > maxDepth) continue;
     const key = boardKey(cells);
     if (memo.has(key)) continue;
     memo.add(key);
-    if (memo.size > budget.memoCap) return { status: 'timeout', reason: 'memocap' };
     if (isSolved(cells)) return { status: 'solved', steps };
 
     // Arrows
@@ -113,9 +112,9 @@ export function solveArrows(level, opts = {}) {
       for (const dir of dirs) {
         const r = doPush(cells, a, dir, cols, rows);
         if (!r) continue;
-        pqPush(pq, {
+        pqPush(queue, {
           cells: r.board, steps: steps.concat([{ word: a.letter, arrow: { x: a.x, y: a.y }, text: `推 ${a.letter} @ ${a.x},${a.y}` }]),
-          depth: depth + 1, score: heuristic(r.board, targetWords)
+          depth: depth + 1,
         });
       }
     }
@@ -123,24 +122,20 @@ export function solveArrows(level, opts = {}) {
     // Words
     for (const w of targetWords) {
       const cfg = WORD_LIBRARY[w];
-      const placements = [];
-      const seenKeys = new Set();
+      let wcount = 0;
       for (const sp of cfg.spell) {
         for (const pl of findPlacements(cells, sp, cols, rows, { maxRec: 10000 })) {
-          const pk = pl.tiles.map(t => `${t.x},${t.y}`).join('|');
-          if (!seenKeys.has(pk)) { seenKeys.add(pk); placements.push(pl); }
-          if (placements.length >= 50) break;
+          const apps = applyWord(cells, w, pl, cols, rows, { maxResults: 200, taQ: true });
+          for (const app of apps) {
+            pqPush(queue, {
+              cells: app.board, steps: steps.concat([{ word: w, text: `拼 ${w}` }]),
+              depth: depth + 1,
+            });
+            if (++wcount >= 30) break;
+          }
+          if (wcount >= 30) break;
         }
-        if (placements.length >= 50) break;
-      }
-      for (const pl of placements) {
-        const apps = applyWord(cells, w, pl, cols, rows, { maxResults: 200, taQ: true });
-        for (const app of apps) {
-          pqPush(pq, {
-            cells: app.board, steps: steps.concat([{ word: w, text: `拼 ${w}` }]),
-            depth: depth + 1, score: heuristic(app.board, targetWords)
-          });
-        }
+        if (wcount >= 30) break;
       }
     }
   }
