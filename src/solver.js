@@ -75,7 +75,6 @@ function nextInDir(cells, from, d, cols, rows) {
 //   - may NOT double-back immediately to previous tile (unless X or ?)
 //   - MAY revisit any earlier tile after visiting X/? conductors between
 export function findPlacements(grid, word, cols, rows, opts = {}) {
-  const allowReverse = word === 'LOLO' || word === 'OLOL';
   const maxResults = opts.maxResults ?? 10000;
   const maxRec = opts.maxRec ?? 200000;
   const results = [];
@@ -94,7 +93,7 @@ export function findPlacements(grid, word, cols, rows, opts = {}) {
     const last = path[path.length - 1];
     const want = word[idx];
     for (const d of DIRS) {
-      if (path.length >= 2 && dir && !allowReverse && (d.x === -dir.x && d.y === -dir.y)) continue; // no reversal
+      if (path.length >= 2 && dir && (d.x === -dir.x && d.y === -dir.y)) continue; // no reversal
       if (path.length >= 2 && dir && d.x === dir.x && d.y === dir.y) {
         // straight - allowed
       } else if (path.length >= 2) {
@@ -359,7 +358,7 @@ export function solve(level, opts = {}) {
   const memo = new Map();
   const all0 = allCells(cells0);
   let best = { maxBlacked: all0.filter(c => c.blacked && c.type !== TYPE.EMPTY).length, board: cells0, steps: [] };
-  const maxDepth = (level.hints?.length ?? 1) * 2 + 8;
+  const maxDepth = 16; // fixed depth limit (no hint dependency)
 
   const stack = [{ cells: cells0, steps: [], depth: 0 }];
   while (stack.length) {
@@ -385,13 +384,9 @@ export function solve(level, opts = {}) {
     if (!budget.check()) {
       return { status: 'timeout', progress: best, reason: 'budget' };
     }
-    let words = [];
-    if (level.hints) {
-      for (const h of level.hints) if (WORD_LIBRARY[h]) words.push(h);
-    }
+    // Try all words from library (no hint prioritization — hints are for answer verification only)
     const spellable = new Set();
     for (const w of Object.keys(WORD_LIBRARY)) {
-      if (words.includes(w)) continue;
       const cfg = WORD_LIBRARY[w];
       for (const sp of cfg.spell) {
         if (findPlacements(cells, sp, cols, rows, { maxRec: 500 }).length > 0) {
@@ -400,7 +395,7 @@ export function solve(level, opts = {}) {
         }
       }
     }
-    const ordered = words.concat([...spellable]);
+    const ordered = [...spellable];
     let pushed = 0;
     for (const w of ordered) {
       const placements = [];
