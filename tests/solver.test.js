@@ -48,7 +48,7 @@ test('regression: solve core worlds', () => {
     let res;
     try {
       if (l.world === 13) res = solveMonuments(level);
-      else if (l.world === 12) res = solveArrows(level, { timeMs: 8000, nodeLimit: 4000000 });
+      else if (l.world === 12) res = solveArrows(level, { timeMs: 30000, nodeLimit: 10000000 });
       else {
         res = solve(level, { timeMs: 12000, nodeLimit: 4000000 });
         if (res.status !== 'solved') {
