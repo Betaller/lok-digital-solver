@@ -144,8 +144,32 @@ export function solveMonuments(level) {
     for (const p of sol) for (const c of p.cells) {
       if (c.letter === '?') qPos.push(c);
     }
-    if (!qPos.length) {
+    const loopedQ = level.olko === 'Looped ?';
+
+    if (!loopedQ && !qPos.length || loopedQ && !qPos.length) {
       const assembled = assembleGrid(level, sol);
+      const res = solve({ ...assembled, world: 0, level: level.level, hints: level.hints || [], name: level.name },
+                        { timeMs: 30000, nodeLimit: 10000000, taQ: true });
+      if (res.status === 'solved') return { ...res, monumentPlacement: sol };
+      continue;
+    }
+
+    // Looped ?: keep ? as wildcards, just verify hints spellable
+    if (loopedQ) {
+      const assembled = assembleGrid(level, sol);
+      const grid = makeBoard(assembled);
+      let allHintOk = true;
+      for (const h of (level.hints || [])) {
+        if (!WORD_LIBRARY[h]) continue;
+        let found = false;
+        for (const sp of WORD_LIBRARY[h].spell) {
+          if (findPlacements(grid, sp, assembled.cols, assembled.rows, { maxRec: 2000 }).length > 0) {
+            found = true; break;
+          }
+        }
+        if (!found) { allHintOk = false; break; }
+      }
+      if (!allHintOk) continue;
       const res = solve({ ...assembled, world: 0, level: level.level, hints: level.hints || [], name: level.name },
                         { timeMs: 30000, nodeLimit: 10000000, taQ: true });
       if (res.status === 'solved') return { ...res, monumentPlacement: sol };

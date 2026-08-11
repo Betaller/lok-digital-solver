@@ -44,7 +44,7 @@ test('regression: solve core worlds', () => {
     if (targetWorld && l.world !== targetWorld) continue;
     const pr = parseLevel(l.ascii);
     if (!pr.ok) { stats.errors++; failList.push(`${l.world}-${l.level}:parse`); continue; }
-    const level = { ...pr.level, world: l.world, level: l.level, hints: l.hints, name: l.name };
+    const level = { ...pr.level, world: l.world, level: l.level, hints: l.hints, name: l.name, olko: l.olko };
     let res;
     try {
       if (l.world === 13) res = solveMonuments(level);

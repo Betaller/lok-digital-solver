@@ -102,7 +102,7 @@ function loadLibraryLevel(world, level) {
   if (!l) return;
   const pr = parseLevel(l.ascii);
   if (!pr.ok) { showError($('#import-err'), pr.message); return; }
-  currentLevel = { ...pr.level, world, level, hints: l.hints, name: l.name };
+  currentLevel = { ...pr.level, world, level, hints: l.hints, name: l.name, olko: l.olko };
   currentMeta = { world, level, name: l.name, hints: l.hints, advanced: l.advanced, olko: l.olko };
   // preview
   const prev = $('#level-preview');
@@ -142,7 +142,10 @@ function runSolve(level) {
     } else if (level.world === 12) {
       res = solveArrows(level);
     } else {
-      res = solve(level, { timeMs: 6000, nodeLimit: 2000000 });
+      res = solve(level, { timeMs: 12000, nodeLimit: 4000000 });
+      if (res.status !== 'solved') {
+        res = solve(level, { timeMs: 12000, nodeLimit: 4000000, taQ: true });
+      }
     }
     showResult(level, res);
   }, 10);
