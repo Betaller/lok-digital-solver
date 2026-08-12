@@ -74,7 +74,7 @@ function nextInDir(cells, from, d, cols, rows) {
 //           ? as wildcard (consumed) or pass-through conductor.
 // Visit rules (from game CheckSameTile / CheckDoubleBack):
 //   - must move to a different cell each step
-//   - cannot immediately double-back to the previous cell (unless via X/?)
+//   - cannot double-back to the prior cell (X/? allow loop-around, not direct U-turn)
 //   - MA-Y revisit any earlier tile after visiting X/? conductors
 export function findPlacements(grid, word, cols, rows, opts = {}) {
   const maxResults = opts.maxResults ?? 10000;
@@ -129,8 +129,9 @@ export function findPlacements(grid, word, cols, rows, opts = {}) {
 
       const isX = next.letter === 'X';
       const isQ = next.letter === '?';
-      // No double-back to immediate predecessor (unless via X/?)
-      if (!isX && !isQ && path.length >= 2 && path[path.length - 2] === next) continue;
+      // Never double-back to the immediate predecessor cell.
+      // X/? allow looping back to an earlier cell, not a direct U-turn.
+      if (path.length >= 2 && path[path.length - 2] === next) continue;
 
       if (isX) {
         // X conductor: pass through without consuming
