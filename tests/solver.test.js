@@ -36,7 +36,7 @@ function replayAndVerify(level, steps) {
   return isSolved(cells);
 }
 
-test('regression: solve core worlds', () => {
+test('regression: solve core worlds', async () => {
   const stats = { solved: 0, timeout: 0, nosol: 0, unsupported: 0, errors: 0 };
   const failList = [];
   const targetWorld = parseInt(process.env.TARGET_WORLD || '0', 10);
@@ -47,7 +47,7 @@ test('regression: solve core worlds', () => {
     const level = { ...pr.level, world: l.world, level: l.level, hints: l.hints, name: l.name, olko: l.olko };
     let res;
     try {
-      if (l.world === 13) res = solveMonuments(level);
+      if (l.world === 13) res = await solveMonuments(level);
       else if (l.world === 12) res = solveArrows(level, { timeMs: 60000, nodeLimit: 20000000 });
       else {
         res = solve(level, { timeMs: 12000, nodeLimit: 4000000 });

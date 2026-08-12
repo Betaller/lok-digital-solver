@@ -4,6 +4,36 @@
 import { parseLevel, exportLevel } from './parse.js';
 import { makeBoard, cellAt, isSolved, boardKey, WORD_LIBRARY } from './engine.js';
 import { solve, findPlacements } from './solver.js';
+import { Worker } from 'node:worker_threads';
+
+const PARALLEL = 4;
+
+const solverOpts = { timeMs: 60000, nodeLimit: 20000000, taQ: true };
+
+// Run one assembled grid in a worker, returning the solve result.
+function solveInWorker(assembled) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL('./mono-worker.js', import.meta.url), {
+      workerData: { assembled, opts: solverOpts }
+    });
+    w.on('message', r => { w.terminate(); resolve(r); });
+    w.on('error', e => { w.terminate(); reject(e); });
+  });
+}
+
+// Process assembled grids in parallel batches.
+async function solveParallel(list) {
+  for (let i = 0; i < list.length; i += PARALLEL) {
+    const batch = list.slice(i, i + PARALLEL);
+    const results = await Promise.all(batch.map(item => solveInWorker(item.assembled)));
+    for (let j = 0; j < results.length; j++) {
+      if (results[j].status === 'solved') {
+        return { res: results[j], sol: batch[j].sol };
+      }
+    }
+  }
+  return null;
+}
 
 // Build the slot layout from parsed Level: slots are cells where grid char is '#'
 // (fake slots are 'X' - they are decorative, cannot be landed on).
@@ -125,11 +155,11 @@ export function assembleGrid(level, solution, qAssign) {
   return { cols: level.cols, rows: level.rows, grid: g, onions: on };
 }
 
-export function solveMonuments(level) {
+export async function solveMonuments(level) {
   if (!level.pieces || !level.pieces.length) {
     return { status: 'exhausted_no_solution', reason: 'no pieces' };
   }
-  const solutions = placePiecesAll(level, level.pieces, 200);
+  const solutions = placePiecesAll(level, level.pieces, 10000);
   if (!solutions.length) return { status: 'exhausted_no_solution', reason: 'no placement' };
 
   const usefulLetters = new Set();
@@ -139,6 +169,9 @@ export function solveMonuments(level) {
   usefulLetters.add('X');
   const qLetters = [...usefulLetters];
 
+  // Collect all assembled grids first
+  const tasks = [];
+
   for (const sol of solutions) {
     const qPos = [];
     for (const p of sol) for (const c of p.cells) {
@@ -146,61 +179,69 @@ export function solveMonuments(level) {
     }
     const loopedQ = level.olko === 'Looped ?';
 
-    if (!loopedQ && !qPos.length || loopedQ && !qPos.length) {
+    if (!loopedQ && !qPos.length) {
       const assembled = assembleGrid(level, sol);
-      const res = solve({ ...assembled, world: 0, level: level.level, hints: level.hints || [], name: level.name },
-                        { timeMs: 30000, nodeLimit: 10000000, taQ: true });
-      if (res.status === 'solved') return { ...res, monumentPlacement: sol };
-      continue;
-    }
-
-    // Looped ?: keep ? as wildcards, just verify hints spellable
-    if (loopedQ) {
+      assembled.world = 0; assembled.level = level.level;
+      assembled.hints = level.hints || []; assembled.name = level.name;
+      tasks.push({ assembled, sol });
+    } else if (loopedQ && !qPos.length) {
+      const assembled = assembleGrid(level, sol);
+      assembled.world = 0; assembled.level = level.level;
+      assembled.hints = level.hints || []; assembled.name = level.name;
+      tasks.push({ assembled, sol });
+    } else if (loopedQ) {
       const assembled = assembleGrid(level, sol);
       const grid = makeBoard(assembled);
       let allHintOk = true;
       for (const h of (level.hints || [])) {
         if (!WORD_LIBRARY[h]) continue;
-        let found = false;
-        const sp = WORD_LIBRARY[h].spell;
-        if (findPlacements(grid, sp, assembled.cols, assembled.rows, { maxRec: 2000 }).length > 0) {
-          found = true;
+        if (findPlacements(grid, WORD_LIBRARY[h].spell, assembled.cols, assembled.rows, { maxRec: 2000 }).length === 0) {
+          allHintOk = false; break;
         }
-        if (!found) { allHintOk = false; break; }
       }
-      if (!allHintOk) continue;
-      const res = solve({ ...assembled, world: 0, level: level.level, hints: level.hints || [], name: level.name },
-                        { timeMs: 30000, nodeLimit: 10000000, taQ: true });
-      if (res.status === 'solved') return { ...res, monumentPlacement: sol };
-      continue;
-    }
-
-    // Try ? assignments, but only those where all hint words become spellable
-    const hints = level.hints || [];
-    for (const a of qLetters) {
-      for (const b of qLetters) {
-        const m = new Map();
-        m.set(qPos[0].x + ',' + qPos[0].y, a);
-        if (qPos.length > 1) m.set(qPos[1].x + ',' + qPos[1].y, b);
-        const assembled = assembleGrid(level, sol, m);
-        const grid = makeBoard(assembled);
-        let allOk = true;
-        for (const h of hints) {
-          if (!WORD_LIBRARY[h]) continue;
-          let found = false;
-          for (const sp of WORD_LIBRARY[h].spell) {
-            if (findPlacements(grid, sp, assembled.cols, assembled.rows, { maxRec: 2000 }).length > 0) {
-              found = true; break;
+      if (allHintOk) {
+        assembled.world = 0; assembled.level = level.level;
+        assembled.hints = level.hints || []; assembled.name = level.name;
+        tasks.push({ assembled, sol });
+      }
+    } else {
+      // ? assignment: need sequential processing, inline below
+      // (kept sequential because there are up to 676 combos per placement)
+      for (const a of qLetters) {
+        for (const b of qLetters) {
+          const m = new Map();
+          m.set(qPos[0].x + ',' + qPos[0].y, a);
+          if (qPos.length > 1) m.set(qPos[1].x + ',' + qPos[1].y, b);
+          const assembled = assembleGrid(level, sol, m);
+          const grid = makeBoard(assembled);
+          let allOk = true;
+          for (const h of (level.hints || [])) {
+            if (!WORD_LIBRARY[h]) continue;
+            if (findPlacements(grid, WORD_LIBRARY[h].spell, assembled.cols, assembled.rows, { maxRec: 2000 }).length === 0) {
+              allOk = false; break;
             }
           }
-          if (!found) { allOk = false; break; }
+          if (!allOk) continue;
+          assembled.world = 0; assembled.level = level.level;
+          assembled.hints = level.hints || []; assembled.name = level.name;
+          const res = solve(assembled, solverOpts);
+          if (res.status === 'solved') return { ...res, monumentPlacement: sol };
         }
-        if (!allOk) continue;
-        const res = solve({ ...assembled, world: 0, level: level.level, hints: level.hints || [], name: level.name },
-                          { timeMs: 30000, nodeLimit: 10000000, taQ: true });
-        if (res.status === 'solved') return { ...res, monumentPlacement: sol };
       }
     }
   }
+
+  // Sequential is faster for quick-failing placements (~1ms each).
+  // Only parallelize when more than 200 placements remain.
+  if (tasks.length <= 200) {
+    for (const { assembled, sol } of tasks) {
+      const res = solve(assembled, solverOpts);
+      if (res.status === 'solved') return { ...res, monumentPlacement: sol };
+    }
+  } else {
+    const result = await solveParallel(tasks);
+    if (result) return { ...result.res, monumentPlacement: result.sol };
+  }
+
   return { status: 'exhausted_no_solution', reason: 'phaseB' };
 }

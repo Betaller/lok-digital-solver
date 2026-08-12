@@ -172,10 +172,10 @@ function runSolve(level) {
   $('#solve-board').innerHTML = '';
   $('#step-list').innerHTML = '';
   // run async (chunked) to avoid blocking
-  setTimeout(() => {
+  setTimeout(async () => {
     let res;
     if (level.world === 13) {
-      res = solveMonuments(level);
+      res = await solveMonuments(level);
     } else if (level.world === 12) {
       res = solveArrows(level);
     } else {

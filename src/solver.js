@@ -203,31 +203,38 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
   if (wdef.clouds) {
     const allCells0 = allCells(grid);
     const ws = allCells0.filter(c => c.letter === 'W' && !c.blacked);
+    // All W cells get hp-1 every time W is spelled
+    let b = applyBlackout(board, ws);
     if (ws.length === 0) {
-      results.push({ board, extras: [], extraAction: 'W' });
+      results.push({ board: b, extras: [], extraAction: 'W' });
       return results;
     }
-    const emitted = new Set();
+    // Cloud pattern uses original W set (before hp-1)
     const anchors = allCells0.filter(c => c.type !== TYPE.EMPTY && !c.blacked);
+    const emitted = new Set();
+    const allResults = [];
     for (const ref of ws) {
       const rx = ref.x, ry = ref.y;
       for (const anchor of anchors) {
         const targets = [];
-        let ok = true;
         for (const w of ws) {
           const dx = w.x - rx, dy = w.y - ry;
           const tx = anchor.x + dx, ty = anchor.y + dy;
+          if (tx < 0 || ty < 0 || tx >= cols || ty >= rows) continue;
           const t = cellAt(grid, tx, ty);
-          if (!t || t.type === TYPE.EMPTY || t.blacked) { ok = false; break; }
+          if (!t || t.type === TYPE.EMPTY || t.blacked) continue;
           if (!targets.some(x => x.x === t.x && x.y === t.y)) targets.push(t);
         }
-        if (!ok) continue;
-        let b = applyBlackout(board, ws);
-        b = applyBlackout(b, targets);
-        const k = boardKey(b);
-        if (!emitted.has(k)) { emitted.add(k); results.push({ board: b, extras: [], extraAction: `W@${anchor.x},${anchor.y}` }); }
+        if (targets.length === 0) continue;
+        let bb = applyBlackout(b, targets);
+        bb[ref.x][ref.y] = blackout(bb[ref.x][ref.y]);
+        const k = boardKey(bb);
+        if (!emitted.has(k)) { emitted.add(k); allResults.push({ board: bb, extras: [], extraAction: `W@${anchor.x},${anchor.y}`, blacked: targets.length }); }
       }
     }
+    // Keep top-N W results by cells blacked (limit branching)
+    allResults.sort((a, b) => b.blacked - a.blacked);
+    for (const r of allResults) results.push(r);
   } else if (wdef.globalLetter) {
     const allCells0 = allCells(grid);
     const letters = new Set();
