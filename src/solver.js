@@ -85,78 +85,79 @@ export function findPlacements(grid, word, cols, rows, opts = {}) {
   let searchCount = 0;
 
   // Direction from the second-to-last cell to the last cell in the path.
-  // Returns null for the first move (only one cell in path).
+  // Returns null for paths of length < 2.
   function directionFrom(path) {
     if (path.length < 2) return null;
     const a = path[path.length - 2], b = path[path.length - 1];
     return { x: Math.sign(b.x - a.x), y: Math.sign(b.y - a.y) };
   }
 
-  // Check whether moving in direction `d` from the current path is valid
-  // according to conductor-path rules (no reversal, turn only at X/?).
+  // Check whether moving in direction `d` from the current path is valid.
   function canProceed(path, d, prevD) {
-    if (!prevD) return true;                 // first move: any direction allowed
-    // No 180° reversal
-    if (d.x === -prevD.x && d.y === -prevD.y) return false;
-    // Straight or turn: turning only at X / ?
-    if (!(d.x === prevD.x && d.y === prevD.y)) {
+    if (!prevD) return true;                 // first move: any direction
+    if (d.x === -prevD.x && d.y === -prevD.y) return false; // no 180° reversal
+    if (!(d.x === prevD.x && d.y === prevD.y)) {           // turning
       const last = path[path.length - 1];
       if (last.letter !== 'X' && last.letter !== '?') return false;
     }
     return true;
   }
 
-  // DFS over the grid. `path` accumulates visited tiles; `idx` is the next
-  // position in `word` to match (0-based, advances on letter consumption).
-  function search(path, idx) {
-    if (results.length >= maxResults) return;
-    if (searchCount++ >= maxRec) return;
-    if (idx === wordLength) {
-      results.push({ tiles: path.slice() });
-      return;
+  // Iterative DFS using explicit stack to avoid call-stack overhead on deep
+  // conductor chains (path length up to wordLength * 3 + 1).
+  const stack = [];
+  // Seed stack with all valid starting cells
+  for (let x = 0; x < cols; x++) {
+    for (let y = 0; y < rows; y++) {
+      const start = grid[x][y];
+      if (!canClick(start) || !isLetterCell(start)) continue;
+      if (start.letter === CH.CONDUCTOR) continue;
+      const isQ = start.letter === CH.WILDCARD;
+      if (!isQ && start.letter !== word[0]) continue;
+      stack.push({ path: [{ ...start, _consume: true }], idx: 1 });
     }
-    if (path.length > wordLength * 3 + 1) return; // too many conductors between letters
+  }
+
+  while (stack.length > 0) {
+    if (results.length >= maxResults) break;
+    if (searchCount++ >= maxRec) break;
+
+    const { path, idx } = stack.pop();
+
+    if (idx === wordLength) {
+      results.push({ tiles: path });
+      continue;
+    }
+    if (path.length > wordLength * 3 + 1) continue;
 
     const last = path[path.length - 1];
     const want = word[idx];
     const prevD = directionFrom(path);
 
-    for (const d of DIRS) {
+    // Push children in reverse so first DIR is explored first (DFS order).
+    for (let i = DIRS.length - 1; i >= 0; i--) {
+      const d = DIRS[i];
       if (!canProceed(path, d, prevD)) continue;
       const next = nextInDir(grid, last, d, cols, rows);
       if (!next) continue;
-      if (last === next) continue; // must move to different cell
+      if (last === next) continue;
+      if (path.length >= 2 && path[path.length - 2] === next) continue;
 
       const isX = next.letter === 'X';
       const isQ = next.letter === '?';
-      // Never double-back to the immediate predecessor cell.
-      // X/? allow looping back to an earlier cell, not a direct U-turn.
-      if (path.length >= 2 && path[path.length - 2] === next) continue;
 
       if (isX) {
-        // X conductor: pass through without consuming
-        search(path.concat([next]), idx);
+        stack.push({ path: path.concat([next]), idx });
       } else if (isQ) {
-        // ? wildcard: can consume as any letter OR pass through as conductor
-        if (idx < wordLength) search(path.concat([Object.assign({}, next, { _consume: true })]), idx + 1);
-        search(path.concat([next]), idx);
+        // Push pass-through later (popped later), consume first
+        stack.push({ path: path.concat([next]), idx });
+        if (idx < wordLength) stack.push({ path: path.concat([Object.assign({}, next, { _consume: true })]), idx: idx + 1 });
       } else if (next.letter === want) {
-        // Regular letter match
-        search(path.concat([next]), idx + 1);
+        stack.push({ path: path.concat([next]), idx: idx + 1 });
       }
     }
   }
 
-  for (let x = 0; x < cols; x++) {
-    for (let y = 0; y < rows; y++) {
-      const start = grid[x][y];
-      if (!canClick(start) || !isLetterCell(start)) continue;
-      if (start.letter === CH.CONDUCTOR) continue; // X cannot start a word
-      const isQ = start.letter === CH.WILDCARD;
-      if (!isQ && start.letter !== word[0]) continue;
-      search([{ ...start, _consume: true }], 1);
-    }
-  }
   return results;
 }
 
