@@ -363,7 +363,7 @@ export function solve(level, opts = {}) {
   const memo = new Map();
   const all0 = allCells(cells0);
   let best = { maxBlacked: all0.filter(c => c.blacked && c.type !== TYPE.EMPTY).length, board: cells0, steps: [] };
-  const maxDepth = 16; // fixed depth limit (no hint dependency)
+  const maxDepth = 16;
 
   const stack = [{ cells: cells0, steps: [], depth: 0 }];
   while (stack.length) {
@@ -389,7 +389,6 @@ export function solve(level, opts = {}) {
     if (!budget.check()) {
       return { status: 'timeout', progress: best, reason: 'budget' };
     }
-    // Try every word; findPlacements with full maxRec is the definitive check.
     let pushed = 0;
     for (const wordName of Object.keys(WORD_LIBRARY)) {
       const wdef = WORD_LIBRARY[wordName];

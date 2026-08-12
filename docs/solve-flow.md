@@ -123,13 +123,13 @@ flowchart TD
 
 ## 单词效果总览
 
-| 词 | spell | 效果 | 说明 |
-|----|-------|------|------|
-| LOK | LOK | extra=1 | 涂黑 L,O,K + 额外1格 |
-| TLAK | TLAK | extra=2, adjacent | 涂黑 T,L,A,K + 同行/列的2格 |
-| TA | TA | globalLetter | 涂黑 T,A + 全盘同字母格 |
-| BE | BE | createLetter | 涂黑 B,E + 在一个空位上创建新字母 |
-| LOLO | LOLO | diagonal | 涂黑 L,O,L,O + 某对角线全清 |
-| ABA | ABA | onion | 涂黑 A,B,A + 任选一格 +/- 洋葱层 |
-| GRIVA | GRIVA | — | 涂黑 G,R,I,V,A |
-| W | W | clouds | 涂黑 W + 以W为模板复制涂黑 |
+| 词    | spell | 效果              | 说明                              |
+| ----- | ----- | ----------------- | --------------------------------- |
+| LOK   | LOK   | extra=1           | 涂黑 L,O,K + 额外1格              |
+| TLAK  | TLAK  | extra=2, adjacent | 涂黑 T,L,A,K + 同行/列的2格       |
+| TA    | TA    | globalLetter      | 涂黑 T,A + 全盘同字母格           |
+| BE    | BE    | createLetter      | 涂黑 B,E + 在一个空位上创建新字母 |
+| LOLO  | LOLO  | diagonal          | 涂黑 L,O,L,O + 某对角线全清       |
+| ABA   | ABA   | onion             | 涂黑 A,B,A + 任选一格 +/- 洋葱层  |
+| GRIVA | GRIVA | —                | 涂黑 G,R,I,V,A                    |
+| W     | W     | clouds            | 涂黑 W + 以W为模板复制涂黑        |
