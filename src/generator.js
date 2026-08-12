@@ -21,7 +21,7 @@ function build(cols, rows, wordList) {
   const placed = new Set();
 
   for (const w of wordList) {
-    const spell = WORD_LIBRARY[w].spell[0];
+    const spell = WORD_LIBRARY[w].spell;
     const n = spell.length;
     const placements = [];
     for (let y = 0; y < rows; y++) {

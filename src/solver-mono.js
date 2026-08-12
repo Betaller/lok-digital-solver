@@ -133,8 +133,8 @@ export function solveMonuments(level) {
   if (!solutions.length) return { status: 'exhausted_no_solution', reason: 'no placement' };
 
   const usefulLetters = new Set();
-  for (const cfg of Object.values(WORD_LIBRARY)) {
-    for (const sp of cfg.spell) for (const ch of sp) usefulLetters.add(ch);
+  for (const wdef of Object.values(WORD_LIBRARY)) {
+    for (const ch of wdef.spell) usefulLetters.add(ch);
   }
   usefulLetters.add('X');
   const qLetters = [...usefulLetters];
@@ -162,10 +162,9 @@ export function solveMonuments(level) {
       for (const h of (level.hints || [])) {
         if (!WORD_LIBRARY[h]) continue;
         let found = false;
-        for (const sp of WORD_LIBRARY[h].spell) {
-          if (findPlacements(grid, sp, assembled.cols, assembled.rows, { maxRec: 2000 }).length > 0) {
-            found = true; break;
-          }
+        const sp = WORD_LIBRARY[h].spell;
+        if (findPlacements(grid, sp, assembled.cols, assembled.rows, { maxRec: 2000 }).length > 0) {
+          found = true;
         }
         if (!found) { allHintOk = false; break; }
       }

@@ -22,18 +22,18 @@ export const TYPE = {
 };
 
 export const WORD_LIBRARY = {
-  LOK:   { spell: ['LOK'],               extra: 1 },
-  TLAK:  { spell: ['TLAK'],              extra: 2, extraAdjacent: true },
-  TA:    { spell: ['TA'],                extra: 0, globalLetter: true },
-  BE:    { spell: ['BE'],                extra: 0, createLetter: true },
-  LOLO:  { spell: ['LOLO'],              extra: 0, diagonal: true },
-  ABA:   { spell: ['ABA'],               extra: 1, onion: true },
-  GRIVA: { spell: ['GRIVA'],             extra: 0 },
-  W:     { spell: ['W'],                 extra: 0, clouds: true },
+  LOK:   { spell: 'LOK',                extra: 1 },
+  TLAK:  { spell: 'TLAK',               extra: 2, extraAdjacent: true },
+  TA:    { spell: 'TA',                 extra: 0, globalLetter: true },
+  BE:    { spell: 'BE',                 extra: 0, createLetter: true },
+  LOLO:  { spell: 'LOLO',               extra: 0, diagonal: true },
+  ABA:   { spell: 'ABA',                extra: 1, onion: true },
+  GRIVA: { spell: 'GRIVA',              extra: 0 },
+  W:     { spell: 'W',                  extra: 0, clouds: true },
 };
 
 export const ALL_SPELLINGS = Object.values(WORD_LIBRARY)
-  .flatMap(w => w.spell)
+  .map(w => w.spell)
   .filter(s => !s.includes('W') || s === 'W');
 
 export const OLKO_SPELLINGS = ['OLKO', 'OKLO'];

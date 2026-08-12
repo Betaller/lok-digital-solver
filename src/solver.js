@@ -176,7 +176,7 @@ function applyBlackout(grid, targets) {
 // Generate all distinct boards after applying word `word` along `placement`.
 // extra selection differs per word type.
 export function applyWord(grid, word, placement, cols, rows, opts = {}) {
-  const cfg = WORD_LIBRARY[word];
+  const wdef = WORD_LIBRARY[word];
   const maxResults = opts.maxResults ?? 2000;
   const results = [];
   const tileCells = placement.tiles.filter(t => {
@@ -200,7 +200,7 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
     }
   }
 
-  if (cfg.clouds) {
+  if (wdef.clouds) {
     const allCells0 = allCells(grid);
     const ws = allCells0.filter(c => c.letter === 'W' && !c.blacked);
     if (ws.length === 0) {
@@ -228,7 +228,7 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
         if (!emitted.has(k)) { emitted.add(k); results.push({ board: b, extras: [], extraAction: `W@${anchor.x},${anchor.y}` }); }
       }
     }
-  } else if (cfg.globalLetter) {
+  } else if (wdef.globalLetter) {
     const allCells0 = allCells(grid);
     const letters = new Set();
     for (const c of allCells0) {
@@ -245,14 +245,12 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
       });
       emit([applyBlackout(board, hits)], [], `TA:${L === '' ? '#' : L}`);
     }
-  } else if (cfg.createLetter) {
+  } else if (wdef.createLetter) {
     const allCells0 = allCells(grid);
     const targets = allCells0.filter(c => c.type === TYPE.BLANK && !c.blacked);
     const usefulLetters = new Set();
-    for (const [_, cfg] of Object.entries(WORD_LIBRARY)) {
-      for (const sp of cfg.spell) {
-        for (const ch of sp) usefulLetters.add(ch);
-      }
+    for (const wdef of Object.values(WORD_LIBRARY)) {
+      for (const ch of wdef.spell) usefulLetters.add(ch);
     }
     usefulLetters.add(CH.WILDCARD); // BE can create ?
     for (const tgt of targets) {
@@ -262,7 +260,7 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
         results.push({ board: b, extras: [], extraAction: `BE:${L}@${tgt.x},${tgt.y}` });
       }
     }
-  } else if (cfg.diagonal) {
+  } else if (wdef.diagonal) {
     // LOLO: blacken the diagonal through the clicked anchor tile.
     // Player may select any non-empty tile as anchor; try all unique diagonals.
     const allCells0 = allCells(grid);
@@ -275,7 +273,7 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
       const diag = allCells0.filter(c => c.type !== TYPE.EMPTY && (c.x + c.y) === key);
       emit([applyBlackout(board, diag)], [], 'lolo');
     }
-  } else if (cfg.onion) {
+  } else if (wdef.onion) {
     // ABA: blacken word tiles + add 1 onion OR unblack a blacked tile.
     const allCells0 = allCells(grid);
     const abaCandidates = allCells0.filter(c => c.type !== TYPE.EMPTY);
@@ -288,11 +286,11 @@ export function applyWord(grid, word, placement, cols, rows, opts = {}) {
       const k = boardKey(b);
       if (!seenAb.has(k)) { seenAb.add(k); emit([b], [ex], 'aba'); }
     }
-  } else if (cfg.extra === 1) {
+  } else if (wdef.extra === 1) {
     for (const ex of candidateSet()) {
       emit([applyBlackout(board, [ex])], [ex], 'extra');
     }
-  } else if (cfg.extra === 2 && cfg.extraAdjacent) {
+  } else if (wdef.extra === 2 && wdef.extraAdjacent) {
     const seenPairs = new Set();
     const bc = boardCandidates;
     for (let i = 0; i < bc.length; i++) {
@@ -391,48 +389,33 @@ export function solve(level, opts = {}) {
     if (!budget.check()) {
       return { status: 'timeout', progress: best, reason: 'budget' };
     }
-    // Try all words from library (no hint prioritization — hints are for answer verification only)
-    const spellable = new Set();
-    for (const w of Object.keys(WORD_LIBRARY)) {
-      const cfg = WORD_LIBRARY[w];
-      for (const sp of cfg.spell) {
-        if (findPlacements(cells, sp, cols, rows, { maxRec: 500 }).length > 0) {
-          spellable.add(w);
-          break;
-        }
-      }
-    }
-    const ordered = [...spellable];
+    // Try every word; findPlacements with full maxRec is the definitive check.
     let pushed = 0;
-    for (const w of ordered) {
+    for (const wordName of Object.keys(WORD_LIBRARY)) {
+      const wdef = WORD_LIBRARY[wordName];
+      if (!wdef) continue;
       const placements = [];
       const seenKeys = new Set();
-      const cfg = WORD_LIBRARY[w];
-      if (cfg) {
-        for (const sp of cfg.spell) {
-          for (const pl of findPlacements(cells, sp, cols, rows, { maxRec: 20000 })) {
-            const pk = pl.tiles.map(t => `${t.x},${t.y}`).join('|');
-            if (!seenKeys.has(pk)) { seenKeys.add(pk); placements.push(pl); }
-            if (placements.length >= 200) break;
-          }
-          if (placements.length >= 200) break;
-        }
+      for (const pl of findPlacements(cells, wdef.spell, cols, rows, { maxRec: 20000 })) {
+        const pk = pl.tiles.map(t => `${t.x},${t.y}`).join('|');
+        if (!seenKeys.has(pk)) { seenKeys.add(pk); placements.push(pl); }
+        if (placements.length >= 200) break;
       }
       if (placements.length === 0) continue;
       for (const pl of placements) {
-        const apps = applyWord(cells, w, pl, cols, rows, { maxResults: 800, taQ });
+        const apps = applyWord(cells, wordName, pl, cols, rows, { maxResults: 800, taQ });
         for (const app of apps) {
           if (!budget.check()) {
             return { status: 'timeout', progress: best, reason: 'budget' };
           }
           const { blackTiles, unblackTiles, letterChanges, hpChanges } = diffCells(cells, app.board);
           stack.push({ cells: app.board, steps: steps.concat([{
-            word: w,
+            word: wordName,
             tiles: pl.tiles.map(t => ({ x: t.x, y: t.y })),
             extras: app.extras.map(t => ({ x: t.x, y: t.y })),
             extraAction: app.extraAction,
             blackTiles, unblackTiles, letterChanges, hpChanges,
-            text: describeStep(w, pl, app),
+            text: describeStep(wordName, pl, app),
           }]), depth: depth + 1 });
           pushed++;
         }

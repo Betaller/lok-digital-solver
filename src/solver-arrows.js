@@ -43,35 +43,34 @@ function heuristic(cells, targetWords) {
   if (!letters.length) return 0;
   if (!targetWords || !targetWords.length) return letters.length * 5;
   let bestCost = Infinity;
-  for (const w of targetWords) {
-    const cfg = WORD_LIBRARY[w];
-    if (!cfg) continue;
-    for (const sp of cfg.spell) {
-      for (const anchor of letters) {
-        if (anchor.letter !== sp[0]) continue;
-        for (const d of [{dx:1,dy:0},{dx:0,dy:1}]) {
-          let cost = 0, ok = true;
-          const used = new Set();
-          for (let i = 0; i < sp.length; i++) {
-            const tx = anchor.x + d.dx * i, ty = anchor.y + d.dy * i;
-            let bestD = Infinity, bestJ = -1;
-            for (let j = 0; j < letters.length; j++) {
-              if (used.has(j)) continue;
-              if (letters[j].letter !== sp[i]) continue;
-              const dist = Math.abs(letters[j].x - tx) + Math.abs(letters[j].y - ty);
-              if (dist < bestD) { bestD = dist; bestJ = j; }
-            }
-            if (bestJ < 0) { ok = false; break; }
-            used.add(bestJ);
-            cost += bestD;
+  for (const word of targetWords) {
+    const wdef = WORD_LIBRARY[word];
+    if (!wdef) continue;
+    const sp = wdef.spell;
+    for (const anchor of letters) {
+      if (anchor.letter !== sp[0]) continue;
+      for (const d of [{dx:1,dy:0},{dx:0,dy:1}]) {
+        let cost = 0, ok = true;
+        const used = new Set();
+        for (let i = 0; i < sp.length; i++) {
+          const tx = anchor.x + d.dx * i, ty = anchor.y + d.dy * i;
+          let bestD = Infinity, bestJ = -1;
+          for (let j = 0; j < letters.length; j++) {
+            if (used.has(j)) continue;
+            if (letters[j].letter !== sp[i]) continue;
+            const dist = Math.abs(letters[j].x - tx) + Math.abs(letters[j].y - ty);
+            if (dist < bestD) { bestD = dist; bestJ = j; }
           }
-          if (ok && cost < bestCost) bestCost = cost;
+          if (bestJ < 0) { ok = false; break; }
+          used.add(bestJ);
+          cost += bestD;
         }
+        if (ok && cost < bestCost) bestCost = cost;
       }
     }
   }
   if (bestCost === Infinity) return letters.length * 10;
-  const tl = targetWords[0] ? WORD_LIBRARY[targetWords[0]]?.spell?.[0]?.length || 0 : 0;
+  const tl = targetWords[0] ? (WORD_LIBRARY[targetWords[0]]?.spell?.length || 0) : 0;
   return bestCost + Math.max(0, letters.length - tl);
 }
 
@@ -126,29 +125,26 @@ export function solveArrows(level, opts = {}) {
     }
 
     // Words
-    for (const w of targetWords) {
-      const cfg = WORD_LIBRARY[w];
+    for (const word of targetWords) {
+      const wdef = WORD_LIBRARY[word];
       let wcount = 0;
-      for (const sp of cfg.spell) {
-        for (const pl of findPlacements(cells, sp, cols, rows, { maxRec: 10000 })) {
-          const apps = applyWord(cells, w, pl, cols, rows, { maxResults: 200, taQ: true });
-          for (const app of apps) {
-            const diff = diffCells(cells, app.board);
-            pqPush(queue, {
-              cells: app.board, steps: steps.concat([{
-                type: 'word', word: w,
-                tiles: pl.tiles.map(t => ({ x: t.x, y: t.y })),
-                extras: (app.extras || []).map(t => ({ x: t.x, y: t.y })),
-                extraAction: app.extraAction,
-                blackTiles: diff.blackTiles, unblackTiles: diff.unblackTiles,
-                letterChanges: diff.letterChanges, hpChanges: diff.hpChanges,
-                text: `拼 ${w}`,
-              }]),
-              depth: depth + 1,
-            });
-            if (++wcount >= 30) break;
-          }
-          if (wcount >= 30) break;
+      for (const pl of findPlacements(cells, wdef.spell, cols, rows, { maxRec: 10000 })) {
+        const apps = applyWord(cells, word, pl, cols, rows, { maxResults: 200, taQ: true });
+        for (const app of apps) {
+          const diff = diffCells(cells, app.board);
+          pqPush(queue, {
+            cells: app.board, steps: steps.concat([{
+              type: 'word', word: word,
+              tiles: pl.tiles.map(t => ({ x: t.x, y: t.y })),
+              extras: (app.extras || []).map(t => ({ x: t.x, y: t.y })),
+              extraAction: app.extraAction,
+              blackTiles: diff.blackTiles, unblackTiles: diff.unblackTiles,
+              letterChanges: diff.letterChanges, hpChanges: diff.hpChanges,
+              text: `拼 ${word}`,
+            }]),
+            depth: depth + 1,
+          });
+          if (++wcount >= 30) break;
         }
         if (wcount >= 30) break;
       }
