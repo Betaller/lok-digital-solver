@@ -101,6 +101,14 @@ export function solveArrows(level, opts = {}) {
     memo.add(key);
     if (isSolved(cells)) return { status: 'solved', steps };
 
+    // Quick pre-check: is any target word spellable on this board?
+    let anyWord = false;
+    for (const w of targetWords) {
+      if (findPlacements(cells, WORD_LIBRARY[w].spell, cols, rows, { maxRec: 2000 }).length > 0) {
+        anyWord = true; break;
+      }
+    }
+
     // Arrows
     const arrows = allCells(cells).filter(c =>
       c.type === TYPE.LETTER && !c.blacked &&
@@ -111,6 +119,20 @@ export function solveArrows(level, opts = {}) {
       for (const dir of dirs) {
         const r = doPush(cells, a, dir, cols, rows);
         if (!r) continue;
+        // Dead-end prune: push consumed last arrow AND no word spellable
+        const childArrows = allCells(r.board).filter(c =>
+          c.type === TYPE.LETTER && !c.blacked &&
+          (ARROW_DIR[c.letter] || c.letter === CH.WILDCARD)
+        );
+        if (childArrows.length === 0) {
+          let childHasWord = false;
+          for (const w of targetWords) {
+            if (findPlacements(r.board, WORD_LIBRARY[w].spell, cols, rows, { maxRec: 2000 }).length > 0) {
+              childHasWord = true; break;
+            }
+          }
+          if (!childHasWord) continue;
+        }
         pqPush(queue, {
           cells: r.board, steps: steps.concat([{
             type: 'push', word: a.letter,
@@ -124,7 +146,8 @@ export function solveArrows(level, opts = {}) {
       }
     }
 
-    // Words
+    // Words — only generate if at least one is spellable
+    if (anyWord) {
     for (const word of targetWords) {
       const wdef = WORD_LIBRARY[word];
       let wcount = 0;
@@ -149,6 +172,9 @@ export function solveArrows(level, opts = {}) {
         if (wcount >= 30) break;
       }
     }
+    }
+
+    if (!anyWord && arrows.length === 0) budget.exhausted = true;
   }
   return { status: 'exhausted_no_solution', steps: [] };
 }
