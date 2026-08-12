@@ -87,27 +87,35 @@ export function solveArrows(level, opts = {}) {
   const hints = (level.hints && level.hints.length) ? level.hints : Object.keys(WORD_LIBRARY);
   const targetWords = hints.filter(w => WORD_LIBRARY[w] && !ARROW_DIR[w]);
 
+  // Letters needed by any target word (plus ?/X wildcards)
+  const usefulLetters = new Set();
+  for (const w of targetWords) {
+    for (const ch of WORD_LIBRARY[w].spell) usefulLetters.add(ch);
+  }
+  usefulLetters.add('?');
+  usefulLetters.add('X');
+
+  function hasUsefulLetters(cells) {
+    const all = allCells(cells);
+    return all.some(c =>
+      c.type === TYPE.LETTER && !c.blacked && usefulLetters.has(c.letter)
+    );
+  }
+
   const memo = new Set();
-  const maxDepth = 25;
   const queue = [{ cells: cells0, steps: [], depth: 0 }];
 
   while (queue.length) {
     if (!budget.check()) return { status: 'timeout', reason: 'budget' };
     const fr = pqPop(queue);
     const { cells, steps, depth } = fr;
-    if (depth > maxDepth) continue;
     const key = boardKey(cells);
     if (memo.has(key)) continue;
     memo.add(key);
     if (isSolved(cells)) return { status: 'solved', steps };
 
-    // Quick pre-check: is any target word spellable on this board?
-    let anyWord = false;
-    for (const w of targetWords) {
-      if (findPlacements(cells, WORD_LIBRARY[w].spell, cols, rows, { maxRec: 2000 }).length > 0) {
-        anyWord = true; break;
-      }
-    }
+    // Quick pre-check: any useful letter or arrow on this board?
+    const anyUseful = hasUsefulLetters(cells);
 
     // Arrows
     const arrows = allCells(cells).filter(c =>
@@ -124,15 +132,7 @@ export function solveArrows(level, opts = {}) {
           c.type === TYPE.LETTER && !c.blacked &&
           (ARROW_DIR[c.letter] || c.letter === CH.WILDCARD)
         );
-        if (childArrows.length === 0) {
-          let childHasWord = false;
-          for (const w of targetWords) {
-            if (findPlacements(r.board, WORD_LIBRARY[w].spell, cols, rows, { maxRec: 2000 }).length > 0) {
-              childHasWord = true; break;
-            }
-          }
-          if (!childHasWord) continue;
-        }
+        if (childArrows.length === 0 && !hasUsefulLetters(r.board)) continue;
         pqPush(queue, {
           cells: r.board, steps: steps.concat([{
             type: 'push', word: a.letter,
@@ -146,8 +146,8 @@ export function solveArrows(level, opts = {}) {
       }
     }
 
-    // Words — only generate if at least one is spellable
-    if (anyWord) {
+    // Words — only generate if any useful letter exists
+    if (anyUseful) {
     for (const word of targetWords) {
       const wdef = WORD_LIBRARY[word];
       let wcount = 0;
@@ -174,7 +174,7 @@ export function solveArrows(level, opts = {}) {
     }
     }
 
-    if (!anyWord && arrows.length === 0) budget.exhausted = true;
+    if (!anyUseful && arrows.length === 0) budget.exhausted = true;
   }
   return { status: 'exhausted_no_solution', steps: [] };
 }

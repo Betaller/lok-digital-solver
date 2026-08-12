@@ -363,7 +363,6 @@ export function solve(level, opts = {}) {
   const memo = new Map();
   const all0 = allCells(cells0);
   let best = { maxBlacked: all0.filter(c => c.blacked && c.type !== TYPE.EMPTY).length, board: cells0, steps: [] };
-  const maxDepth = 16;
 
   const stack = [{ cells: cells0, steps: [], depth: 0 }];
   while (stack.length) {
@@ -372,7 +371,6 @@ export function solve(level, opts = {}) {
     }
     const frame = stack.pop();
     const { cells, steps, depth } = frame;
-    if (depth > maxDepth) continue;
     const key = boardKey(cells);
     if (memo.has(key)) continue;
     memo.set(key, true);
