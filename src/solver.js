@@ -69,74 +69,79 @@ function nextInDir(cells, from, d, cols, rows) {
   return null;
 }
 
-// Enumerate all paths spelling `word`. `grid` is the current board.
+// Enumerate all paths spelling `word` on the board via conductor-path rules.
+// Supports: straight-line jumps (over empty/blacked cells), 90° turns at X/?,
+//           ? as wildcard (consumed) or pass-through conductor.
 // Visit rules (from game CheckSameTile / CheckDoubleBack):
-//   - may NOT stay on the same tile (next must be different cell)
-//   - may NOT double-back immediately to previous tile (unless X or ?)
-//   - MAY revisit any earlier tile after visiting X/? conductors between
+//   - must move to a different cell each step
+//   - cannot immediately double-back to the previous cell (unless via X/?)
+//   - MA-Y revisit any earlier tile after visiting X/? conductors
 export function findPlacements(grid, word, cols, rows, opts = {}) {
   const maxResults = opts.maxResults ?? 10000;
   const maxRec = opts.maxRec ?? 200000;
   const results = [];
-  const n = word.length;
-  if (n === 0) return results;
-  let recCount = 0;
+  const wordLength = word.length;
+  if (wordLength === 0) return results;
+  let searchCount = 0;
 
-  function rec(path, dir, idx) {
+  // Direction from the second-to-last cell to the last cell in the path.
+  // Returns null for the first move (only one cell in path).
+  function directionFrom(path) {
+    if (path.length < 2) return null;
+    const a = path[path.length - 2], b = path[path.length - 1];
+    return { x: Math.sign(b.x - a.x), y: Math.sign(b.y - a.y) };
+  }
+
+  // Check whether moving in direction `d` from the current path is valid
+  // according to conductor-path rules (no reversal, turn only at X/?).
+  function canProceed(path, d, prevD) {
+    if (!prevD) return true;                 // first move: any direction allowed
+    // No 180° reversal
+    if (d.x === -prevD.x && d.y === -prevD.y) return false;
+    // Straight or turn: turning only at X / ?
+    if (!(d.x === prevD.x && d.y === prevD.y)) {
+      const last = path[path.length - 1];
+      if (last.letter !== 'X' && last.letter !== '?') return false;
+    }
+    return true;
+  }
+
+  // DFS over the grid. `path` accumulates visited tiles; `idx` is the next
+  // position in `word` to match (0-based, advances on letter consumption).
+  function search(path, idx) {
     if (results.length >= maxResults) return;
-    if (recCount++ >= maxRec) return;
-    if (idx === n) {
+    if (searchCount++ >= maxRec) return;
+    if (idx === wordLength) {
       results.push({ tiles: path.slice() });
       return;
     }
-    if (path.length > n * 3 + 1) return; // conductor cap
+    if (path.length > wordLength * 3 + 1) return; // too many conductors between letters
+
     const last = path[path.length - 1];
     const want = word[idx];
+    const prevD = directionFrom(path);
+
     for (const d of DIRS) {
-      if (path.length >= 2 && dir && (d.x === -dir.x && d.y === -dir.y)) continue; // no reversal
-      if (path.length >= 2 && dir && d.x === dir.x && d.y === dir.y) {
-        // straight - allowed
-      } else if (path.length >= 2) {
-        // turning: allowed if last tile is 'X' or '?'
-        const isXlike = last.letter === 'X' || last.letter === '?';
-        if (!isXlike) continue;
-      }
+      if (!canProceed(path, d, prevD)) continue;
       const next = nextInDir(grid, last, d, cols, rows);
       if (!next) continue;
-      const sameTile = path[path.length - 1] === next;
-      if (sameTile) continue;
+      if (last === next) continue; // must move to different cell
+
       const isX = next.letter === 'X';
       const isQ = next.letter === '?';
-      if (!isX && !isQ && path.length >= 2 && path[path.length - 2] === next) continue; // no double back
-      let consumes = false;
-      if (isX) consumes = false;            // conductor
-      else if (isQ) {
-        // ? is both a wildcard (consumed) and a conductor (pass-through).
-        // Branch: consume as letter, AND skip as conductor.
-        let newDirQ = dir;
-        if (path.length >= 2 && dir) {
-          if (d.x === dir.x && d.y === dir.y) newDirQ = dir;
-          else newDirQ = d;
-        } else {
-          newDirQ = d;
-        }
-        if (idx < n) rec(path.concat([Object.assign({}, next, { _consume: true })]), newDirQ, idx + 1);
-        rec(path.concat([next]), newDirQ, idx);
-        continue;
-      }
-      else if (next.letter === want) consumes = true;
-      else continue;
-      let newDir = dir;
-      if (path.length >= 2 && dir) {
-        if (d.x === dir.x && d.y === dir.y) newDir = dir;
-        else newDir = d;
-      } else {
-        newDir = d;
-      }
-      if (consumes && idx < n) {
-        rec(path.concat([next]), newDir, idx + 1);
-      } else if (!consumes) {
-        rec(path.concat([next]), newDir, idx);
+      // No double-back to immediate predecessor (unless via X/?)
+      if (!isX && !isQ && path.length >= 2 && path[path.length - 2] === next) continue;
+
+      if (isX) {
+        // X conductor: pass through without consuming
+        search(path.concat([next]), idx);
+      } else if (isQ) {
+        // ? wildcard: can consume as any letter OR pass through as conductor
+        if (idx < wordLength) search(path.concat([Object.assign({}, next, { _consume: true })]), idx + 1);
+        search(path.concat([next]), idx);
+      } else if (next.letter === want) {
+        // Regular letter match
+        search(path.concat([next]), idx + 1);
       }
     }
   }
@@ -145,10 +150,10 @@ export function findPlacements(grid, word, cols, rows, opts = {}) {
     for (let y = 0; y < rows; y++) {
       const start = grid[x][y];
       if (!canClick(start) || !isLetterCell(start)) continue;
-      if (start.letter === CH.CONDUCTOR) continue; // X cannot be first
+      if (start.letter === CH.CONDUCTOR) continue; // X cannot start a word
       const isQ = start.letter === CH.WILDCARD;
       if (!isQ && start.letter !== word[0]) continue;
-      rec([{ ...start, _consume: true }], null, 1);
+      search([{ ...start, _consume: true }], 1);
     }
   }
   return results;
